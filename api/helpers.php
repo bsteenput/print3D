@@ -1,0 +1,172 @@
+<?php
+if (file_exists(__DIR__ . '/../config/config.local.php')) {
+    require_once __DIR__ . '/../config/config.local.php';
+} else {
+    require_once __DIR__ . '/../config/config.php';
+}
+require_once __DIR__ . '/../config/db.php';
+
+// ── Réponses JSON ────────────────────────────────────────────
+function json_ok(mixed $data, int $code = 200): never {
+    http_response_code($code);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => true, 'data' => $data], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function json_err(string $message, int $code = 400): never {
+    http_response_code($code);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => false, 'error' => $message], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function body(): array {
+    return json_decode(file_get_contents('php://input'), true) ?? [];
+}
+
+// ── JWT minimal (sans librairie externe) ────────────────────
+function jwt_encode(array $payload): string {
+    $header  = base64url(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
+    $payload = base64url(json_encode($payload));
+    $sig     = base64url(hash_hmac('sha256', "$header.$payload", JWT_SECRET, true));
+    return "$header.$payload.$sig";
+}
+
+function jwt_decode(string $token): ?array {
+    $parts = explode('.', $token);
+    if (count($parts) !== 3) return null;
+    [$header, $payload, $sig] = $parts;
+    $expected = base64url(hash_hmac('sha256', "$header.$payload", JWT_SECRET, true));
+    if (!hash_equals($expected, $sig)) return null;
+    $data = json_decode(base64_decode(strtr($payload, '-_', '+/')), true);
+    if (!$data || ($data['exp'] ?? 0) < time()) return null;
+    return $data;
+}
+
+function base64url(string $data): string {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+function current_user(): ?array {
+    $header = $_SERVER['HTTP_AUTHORIZATION']
+           ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+           ?? '';
+    if (!str_starts_with($header, 'Bearer ')) return null;
+    $token = substr($header, 7);
+    $payload = jwt_decode($token);
+    if (!$payload) return null;
+    $stmt = db()->prepare('SELECT id, name, email, role FROM users WHERE id = ?');
+    $stmt->execute([$payload['sub']]);
+    return $stmt->fetch() ?: null;
+}
+
+function require_auth(): array {
+    $user = current_user();
+    if (!$user) json_err('Non authentifié', 401);
+    return $user;
+}
+
+function require_admin(): array {
+    $user = require_auth();
+    if ($user['role'] !== 'admin') json_err('Accès refusé', 403);
+    return $user;
+}
+
+// ── Calcul prix automatique ───────────────────────────────────
+function calc_price_auto(float $grams, float $hours, float $price_per_kg, float $hourly_rate): float {
+    $filament_cost = ($grams / 1000) * $price_per_kg;
+    $machine_cost  = $hours * $hourly_rate;
+    return round($filament_cost + $machine_cost, 2);
+}
+
+// ── Génération ref job ────────────────────────────────────────
+function next_job_ref(): string {
+    $stmt = db()->query('SELECT MAX(CAST(SUBSTRING(ref, 5) AS UNSIGNED)) AS max_n FROM jobs');
+    $row  = $stmt->fetch();
+    $n    = ($row['max_n'] ?? 0) + 1;
+    return 'JOB-' . str_pad($n, 4, '0', STR_PAD_LEFT);
+}
+
+// ── Upload STL ────────────────────────────────────────────────
+function handle_stl_upload(int $job_id): array {
+    $saved = [];
+    $files = $_FILES['stl'] ?? null;
+    if (!$files) return $saved;
+
+    // Normaliser en tableau (un ou plusieurs fichiers)
+    if (!is_array($files['name'])) {
+        foreach ($files as $k => $v) $files[$k] = [$v];
+    }
+
+    $dir = UPLOAD_DIR . "job_{$job_id}/";
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+    foreach ($files['name'] as $i => $name) {
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['stl'])) continue;
+        if ($files['size'][$i] > MAX_FILE_SIZE) continue;
+
+        $safe     = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $name);
+        $filename = uniqid() . '_' . $safe;
+        $dest     = $dir . $filename;
+
+        if (move_uploaded_file($files['tmp_name'][$i], $dest)) {
+            $stmt = db()->prepare(
+                'INSERT INTO job_files (job_id, filename, path, size_bytes) VALUES (?,?,?,?)'
+            );
+            $rel = "job_{$job_id}/{$filename}";
+            $stmt->execute([$job_id, $name, $rel, $files['size'][$i]]);
+            $saved[] = [
+                'id'       => db()->lastInsertId(),
+                'filename' => $name,
+                'url'      => UPLOAD_URL . $rel,
+            ];
+        }
+    }
+    return $saved;
+}
+
+// ── Email notification ────────────────────────────────────────
+function notify_client_status(int $job_id, string $status): void {
+    $setting = db()->query("SELECT value FROM settings WHERE key_name='notify_on_status'")->fetchColumn();
+    if (!$setting) return;
+
+    $stmt = db()->prepare('
+        SELECT j.ref, j.title, j.price_final, u.name, u.email
+        FROM jobs j JOIN users u ON u.id = j.client_id
+        WHERE j.id = ?
+    ');
+    $stmt->execute([$job_id]);
+    $row = $stmt->fetch();
+    if (!$row || !$row['email']) return;
+
+    $labels = [
+        'queued'    => 'En file d\'attente',
+        'printing'  => 'En cours d\'impression',
+        'done'      => 'Prête à récupérer !',
+        'picked_up' => 'Récupérée — merci !',
+        'cancelled' => 'Annulée',
+    ];
+    $label = $labels[$status] ?? $status;
+
+    $price_line = '';
+    if ($status === 'done' && $row['price_final']) {
+        $price_line = "\nPrix : " . number_format($row['price_final'], 2) . " €";
+    }
+
+    $subject = "[Print3D] {$row['ref']} — {$label}";
+    $body    = "Bonjour {$row['name']},\n\n"
+             . "Ton impression « {$row['title']} » ({$row['ref']}) a changé de statut :\n\n"
+             . "  ➜  {$label}\n"
+             . $price_line . "\n\n"
+             . "Suis tes impressions : " . APP_URL . "\n\n"
+             . "— Bertrand";
+
+    $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
+             . "Content-Type: text/plain; charset=utf-8\r\n";
+
+    mail($row['email'], $subject, $body, $headers);
+}

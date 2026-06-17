@@ -1,0 +1,8 @@
+config/config.local.php
+uploads/*
+!uploads/.htaccess
+docker-compose.yml
+docker-compose.coolify.yml
+.git
+.claude
+*.md

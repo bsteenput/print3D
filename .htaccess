@@ -1,0 +1,44 @@
+Options -Indexes
+Options -MultiViews
+
+RewriteEngine On
+
+# Passe le header Authorization à PHP après les rewrites
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Force HTTPS (production uniquement, pas en local)
+RewriteCond %{HTTPS} off
+RewriteCond %{HTTP_HOST} !^localhost(:\d+)?$
+RewriteCond %{HTTP_HOST} !^127\.0\.0\.1(:\d+)?$
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Protect sensitive dirs
+RewriteRule ^(config|api/routes)/ - [F,L]
+
+# API : tout /api/* vers api/index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+# Assets statiques : /css/* et /js/* → public/css/* et public/js/*
+RewriteRule ^(css|js)/(.+)$ public/$1/$2 [L]
+
+# SPA : racine explicite + toutes les routes non-fichier
+RewriteRule ^$ public/index.html [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ public/index.html [L]
+
+# Sécurité headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Cache assets statiques
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css              "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/svg+xml         "access plus 1 month"
+</IfModule>

@@ -1,0 +1,753 @@
+/* ============================================================
+   Print3D — Single-Page Application
+   ============================================================ */
+
+const API = '/api';
+let _user = null;
+
+// ── Auth helpers ──────────────────────────────────────────────
+const token = () => localStorage.getItem('p3d_token');
+const setToken = t => localStorage.setItem('p3d_token', t);
+const clearAuth = () => { localStorage.removeItem('p3d_token'); _user = null; };
+
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token()) headers['Authorization'] = 'Bearer ' + token();
+  const res = await fetch(API + path, { ...opts, headers });
+  const json = await res.json().catch(() => ({ ok: false, error: 'Erreur réseau' }));
+  if (!json.ok) throw Object.assign(new Error(json.error || 'Erreur'), { status: res.status });
+  return json.data;
+}
+
+const get  = (p)    => apiFetch(p);
+const post = (p, b) => apiFetch(p, { method: 'POST',   body: JSON.stringify(b) });
+const put  = (p, b) => apiFetch(p, { method: 'PUT',    body: JSON.stringify(b) });
+const patch= (p, b) => apiFetch(p, { method: 'PATCH',  body: JSON.stringify(b) });
+const del  = (p)    => apiFetch(p, { method: 'DELETE' });
+
+// ── DOM helpers ───────────────────────────────────────────────
+const el    = id  => document.getElementById(id);
+const html  = (id, h) => { el(id).innerHTML = h; };
+const show  = id  => { el(id).style.display = ''; };
+const hide  = id  => { el(id).style.display = 'none'; };
+const esc   = s   => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const money = n   => Number(n ?? 0).toFixed(2) + ' €';
+const fmt   = d   => d ? new Date(d).toLocaleString('fr-BE', { dateStyle:'short', timeStyle:'short' }) : '—';
+const fmtD  = d   => d ? new Date(d).toLocaleDateString('fr-BE') : '—';
+
+const STATUS_LABELS = {
+  draft:'Brouillon', queued:'En attente', printing:'En cours',
+  done:'Terminé', picked_up:'Récupéré', cancelled:'Annulé'
+};
+const badge = s => `<span class="badge badge-${s}">${STATUS_LABELS[s] ?? s}</span>`;
+const colorDot = hex => hex ? `<span class="color-dot" style="background:${esc(hex)}"></span>` : '';
+
+// ── Login ─────────────────────────────────────────────────────
+async function initLogin() {
+  el('login-screen').style.display = 'flex';
+  hide('app');
+  const btn = el('l-btn');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    hide('login-err');
+    try {
+      const r = await post('/auth/login', { email: el('l-email').value, password: el('l-pass').value });
+      setToken(r.token);
+      _user = r.user;
+      startApp();
+    } catch(e) {
+      el('login-err').textContent = e.message;
+      show('login-err');
+    } finally { btn.disabled = false; }
+  };
+  el('l-pass').onkeydown = e => { if (e.key === 'Enter') btn.click(); };
+}
+
+// ── App shell ─────────────────────────────────────────────────
+async function startApp() {
+  hide('login-screen');
+  el('app').style.display = 'flex';
+  el('sb-name').textContent = _user.name;
+
+  // show/hide admin-only nav items
+  document.querySelectorAll('[data-admin]').forEach(a => {
+    a.style.display = _user.role === 'admin' ? '' : 'none';
+  });
+
+  el('logout-btn').onclick = e => { e.preventDefault(); clearAuth(); initLogin(); };
+  window.onhashchange = route;
+  if (!location.hash || location.hash === '#') location.hash = _user.role === 'admin' ? '#dashboard' : '#jobs';
+  else route();
+}
+
+// ── Router ────────────────────────────────────────────────────
+function route() {
+  const hash = location.hash.replace('#', '') || 'dashboard';
+  const [page, param] = hash.split('/');
+
+  document.querySelectorAll('#nav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + page);
+  });
+
+  const views = {
+    dashboard: viewDashboard,
+    jobs:      () => param ? viewJob(param) : viewJobs(),
+    clients:   () => param ? viewClient(param) : viewClients(),
+    printers:  viewPrinters,
+    filaments: viewFilaments,
+    settings:  viewSettings,
+  };
+  (views[page] || (() => html('view', '<div class="empty">Page introuvable</div>')))();
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────
+async function viewDashboard() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const d = await get('/dashboard');
+    html('view', `
+      <div class="page-title">Dashboard</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="val">${d.counts.queued}</div><div class="lbl">En attente</div></div>
+        <div class="stat-card"><div class="val">${d.counts.printing}</div><div class="lbl">En cours</div></div>
+        <div class="stat-card"><div class="val">${d.counts.done}</div><div class="lbl">Terminés</div></div>
+        <div class="stat-card"><div class="val">${money(d.revenue)}</div><div class="lbl">CA total</div></div>
+      </div>
+      ${d.low_stock.length ? `
+      <div class="card">
+        <h2>⚠️ Stock bas (&lt;200g)</h2>
+        <div class="table-wrap"><table>
+          <tr><th>Matière</th><th>Couleur</th><th>Stock</th></tr>
+          ${d.low_stock.map(f=>`<tr>
+            <td>${esc(f.material)}</td>
+            <td>${colorDot(f.color_hex)}${esc(f.color)}</td>
+            <td><strong style="color:var(--warning)">${f.stock_grams}g</strong></td>
+          </tr>`).join('')}
+        </table></div>
+      </div>` : ''}
+      <div class="card">
+        <h2>Jobs actifs</h2>
+        ${d.active_jobs.length ? `<div class="table-wrap"><table>
+          <tr><th>Réf</th><th>Titre</th><th>Client</th><th>Statut</th><th>Progression</th></tr>
+          ${d.active_jobs.map(j => `<tr>
+            <td><a href="#jobs/${j.id}">${esc(j.ref)}</a></td>
+            <td>${esc(j.title)}</td>
+            <td>${esc(j.client_name)}</td>
+            <td>${badge(j.status)}</td>
+            <td>${j.layer_total ? progressBar(j.layer_current, j.layer_total) : '—'}</td>
+          </tr>`).join('')}
+        </table></div>` : '<div class="empty">Aucun job actif</div>'}
+      </div>
+      <div class="card">
+        <h2>Jobs récents</h2>
+        <div class="table-wrap"><table>
+          <tr><th>Réf</th><th>Titre</th><th>Client</th><th>Statut</th><th>Prix</th><th>Date</th></tr>
+          ${d.recent_jobs.map(j=>`<tr>
+            <td><a href="#jobs/${j.id}">${esc(j.ref)}</a></td>
+            <td>${esc(j.title)}</td>
+            <td>${esc(j.client_name)}</td>
+            <td>${badge(j.status)}</td>
+            <td>${j.price_final ? money(j.price_final) : '—'}</td>
+            <td>${fmtD(j.created_at)}</td>
+          </tr>`).join('')}
+        </table></div>
+      </div>
+    `);
+  } catch(e) { html('view', errBox(e)); }
+}
+
+function progressBar(cur, tot) {
+  const pct = tot ? Math.round((cur/tot)*100) : 0;
+  return `<div class="progress-wrap" title="${cur}/${tot} couches">
+    <div class="progress-bar" style="width:${pct}%"></div>
+  </div><small style="color:var(--muted)">${pct}%</small>`;
+}
+
+// ── JOBS LIST ─────────────────────────────────────────────────
+async function viewJobs() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const jobs = await get('/jobs');
+    const isAdmin = _user.role === 'admin';
+    html('view', `
+      <div class="page-title">
+        Jobs d'impression
+        ${isAdmin ? `<button class="btn btn-primary" id="new-job-btn">+ Nouveau job</button>` : ''}
+      </div>
+      <div class="table-wrap"><table>
+        <tr>
+          <th>Réf</th><th>Titre</th>
+          ${isAdmin ? '<th>Client</th>' : ''}
+          <th>Statut</th><th>Prix</th><th>ETA</th><th>Créé</th>
+        </tr>
+        ${jobs.length ? jobs.map(j => `<tr style="cursor:pointer" onclick="location.hash='#jobs/${j.id}'">
+          <td><strong>${esc(j.ref)}</strong></td>
+          <td>${esc(j.title)}</td>
+          ${isAdmin ? `<td>${esc(j.client_name)}</td>` : ''}
+          <td>${badge(j.status)}</td>
+          <td>${j.price_final ? money(j.price_final) : '—'}</td>
+          <td>${fmt(j.eta)}</td>
+          <td>${fmtD(j.created_at)}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="empty">Aucun job</td></tr>'}
+      </table></div>
+    `);
+    if (isAdmin) el('new-job-btn')?.addEventListener('click', () => modalNewJob());
+  } catch(e) { html('view', errBox(e)); }
+}
+
+// ── JOB DETAIL ────────────────────────────────────────────────
+async function viewJob(id) {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const [j, clients, printers, filaments] = await Promise.all([
+      get('/jobs/' + id),
+      _user.role === 'admin' ? get('/clients') : Promise.resolve([]),
+      _user.role === 'admin' ? get('/printers') : Promise.resolve([]),
+      get('/filaments'),
+    ]);
+    const isAdmin = _user.role === 'admin';
+    const pct = j.layer_total ? Math.round((j.layer_current/j.layer_total)*100) : null;
+
+    html('view', `
+      <div class="page-title">
+        <div>
+          <a href="#jobs" style="font-size:14px;color:var(--muted)">← Jobs</a><br>
+          ${esc(j.ref)} — ${esc(j.title)}
+        </div>
+        <div style="display:flex;gap:8px">
+          ${isAdmin ? `<button class="btn btn-primary btn-sm" id="edit-job-btn">Modifier</button>
+          <button class="btn btn-ghost btn-sm" id="status-btn">Changer statut</button>
+          <button class="btn btn-danger btn-sm" id="del-job-btn">Supprimer</button>` : ''}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div>
+          <div class="card">
+            <h2>Informations</h2>
+            <table style="width:100%">
+              <tr><td style="color:var(--muted);width:140px">Statut</td><td>${badge(j.status)}</td></tr>
+              <tr><td style="color:var(--muted)">Client</td><td>${esc(j.client_name)}</td></tr>
+              <tr><td style="color:var(--muted)">Quantité</td><td>${j.quantity}</td></tr>
+              <tr><td style="color:var(--muted)">Imprimante</td><td>${esc(j.printer_name ?? '—')}</td></tr>
+              <tr><td style="color:var(--muted)">Filament</td><td>${j.filament_material ? colorDot(j.color_hex)+esc(j.filament_material)+' '+esc(j.filament_color) : '—'}</td></tr>
+              <tr><td style="color:var(--muted)">Grammes</td><td>${j.grams_used ? j.grams_used+'g' : '—'}</td></tr>
+              <tr><td style="color:var(--muted)">Durée</td><td>${j.print_hours ? j.print_hours+'h' : '—'}</td></tr>
+              <tr><td style="color:var(--muted)">ETA</td><td>${fmt(j.eta)}</td></tr>
+              <tr><td style="color:var(--muted)">Prix auto</td><td>${j.price_auto ? money(j.price_auto) : '—'}</td></tr>
+              <tr><td style="color:var(--muted)">Prix final</td><td><strong>${j.price_final ? money(j.price_final) : '—'}</strong></td></tr>
+            </table>
+            ${j.description ? `<hr style="border-color:var(--border);margin:16px 0"><p style="color:var(--muted)">${esc(j.description)}</p>` : ''}
+            ${isAdmin && j.notes_admin ? `<hr style="border-color:var(--border);margin:16px 0"><p style="font-size:12px;color:var(--warning)">🔒 ${esc(j.notes_admin)}</p>` : ''}
+          </div>
+          ${pct !== null ? `
+          <div class="card">
+            <h2>Progression</h2>
+            ${progressBar(j.layer_current, j.layer_total)}
+            <p style="margin-top:8px;font-size:13px;color:var(--muted)">${j.layer_current}/${j.layer_total} couches</p>
+          </div>` : ''}
+        </div>
+        <div>
+          <div class="card">
+            <h2>Fichiers STL</h2>
+            ${j.files.length ? `<ul class="file-list" id="file-list">
+              ${j.files.map(f => `<li id="fi-${f.id}">
+                <button class="btn btn-sm btn-ghost" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁 Voir</button>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.filename)}</span>
+                <span style="color:var(--muted)">${formatBytes(f.size_bytes)}</span>
+                ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
+              </li>`).join('')}
+            </ul>` : '<div class="empty" style="padding:16px">Aucun fichier</div>'}
+            <div style="margin-top:12px">
+              <input type="file" id="stl-input" accept=".stl" multiple style="display:none">
+              <button class="btn btn-ghost btn-sm" onclick="el('stl-input').click()">+ Ajouter STL</button>
+              <span id="upload-status" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Timeline</h2>
+            <ul class="timeline">
+              ${j.events.map(ev=>`<li>
+                <div class="tl-dot"></div>
+                <div>
+                  <div class="tl-time">${fmt(ev.created_at)}</div>
+                  <div class="tl-label">${esc(STATUS_LABELS[ev.status] ?? ev.status)}</div>
+                  ${ev.message ? `<div class="tl-msg">${esc(ev.message)}</div>` : ''}
+                </div>
+              </li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+    `);
+
+    // STL upload
+    el('stl-input')?.addEventListener('change', async () => {
+      const f = el('stl-input').files;
+      if (!f.length) return;
+      el('upload-status').textContent = 'Upload…';
+      const fd = new FormData();
+      for (let i=0; i<f.length; i++) fd.append('stl[]', f[i]);
+      const headers = {};
+      if (token()) headers['Authorization'] = 'Bearer ' + token();
+      try {
+        const res = await fetch(`${API}/jobs/${id}/files`, { method:'POST', headers, body: fd });
+        const json = await res.json();
+        el('upload-status').textContent = json.ok ? `${json.data.length} fichier(s) uploadé(s)` : json.error;
+        if (json.ok) setTimeout(() => viewJob(id), 800);
+      } catch(e) { el('upload-status').textContent = 'Erreur upload'; }
+    });
+
+    if (isAdmin) {
+      el('edit-job-btn')?.addEventListener('click', () => modalEditJob(j, clients, printers, filaments));
+      el('status-btn')?.addEventListener('click', () => modalStatus(j));
+      el('del-job-btn')?.addEventListener('click', async () => {
+        if (!confirm('Supprimer ce job ?')) return;
+        await del('/jobs/' + id);
+        location.hash = '#jobs';
+      });
+    }
+  } catch(e) { html('view', errBox(e)); }
+}
+
+window.deleteFile = async (jobId, fileId) => {
+  if (!confirm('Supprimer ce fichier ?')) return;
+  await del(`/jobs/${jobId}/files?file_id=${fileId}`);
+  el('fi-' + fileId)?.remove();
+};
+
+function formatBytes(b) {
+  if (!b) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(0) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+// ── MODAL: new job ────────────────────────────────────────────
+async function modalNewJob() {
+  const [clients, printers, filaments] = await Promise.all([
+    get('/clients'), get('/printers'), get('/filaments')
+  ]);
+  openModal('Nouveau job', `
+    <div class="form-row">
+      <div class="form-group"><label>Client</label>
+        <select id="m-client">${clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label>Quantité</label><input type="number" id="m-qty" value="1" min="1"></div>
+    </div>
+    <div class="form-group"><label>Titre</label><input id="m-title" placeholder="Ex: Pied de lampe"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-desc" rows="3"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Imprimante</label>
+        <select id="m-printer"><option value="">—</option>${printers.filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label>Filament</label>
+        <select id="m-filament"><option value="">—</option>${filaments.filter(f=>f.active).map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes internes</label><textarea id="m-notes" rows="2"></textarea></div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Créer',cls:'btn-primary',click:async()=>{
+    const b = {
+      title: el('m-title').value, description: el('m-desc').value,
+      client_id: +el('m-client').value, quantity: +el('m-qty').value,
+      printer_id: +el('m-printer').value || null,
+      filament_id: +el('m-filament').value || null,
+      notes_admin: el('m-notes').value,
+    };
+    const r = await post('/jobs', b);
+    closeModal(); location.hash = '#jobs/' + r.id;
+  }}]);
+}
+
+// ── MODAL: edit job ───────────────────────────────────────────
+function modalEditJob(j, clients, printers, filaments) {
+  openModal('Modifier ' + j.ref, `
+    <div class="form-group"><label>Titre</label><input id="m-title" value="${esc(j.title)}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Client</label>
+        <select id="m-client">${clients.map(c=>`<option value="${c.id}"${+c.id===+j.client_id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label>Quantité</label><input type="number" id="m-qty" value="${j.quantity}" min="1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Imprimante</label>
+        <select id="m-printer"><option value="">—</option>${printers.map(p=>`<option value="${p.id}"${+p.id===+j.printer_id?' selected':''}>${esc(p.name)}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label>Filament</label>
+        <select id="m-filament"><option value="">—</option>${filaments.map(f=>`<option value="${f.id}"${+f.id===+j.filament_id?' selected':''}>${esc(f.material)} ${esc(f.color)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="form-row-3">
+      <div class="form-group"><label>Grammes</label><input type="number" step="0.1" id="m-grams" value="${j.grams_used??''}"></div>
+      <div class="form-group"><label>Heures</label><input type="number" step="0.1" id="m-hours" value="${j.print_hours??''}"></div>
+      <div class="form-group"><label>Prix final (€)</label><input type="number" step="0.01" id="m-price" value="${j.price_final??''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Couche actuelle</label><input type="number" id="m-lc" value="${j.layer_current??''}"></div>
+      <div class="form-group"><label>Couches total</label><input type="number" id="m-lt" value="${j.layer_total??''}"></div>
+    </div>
+    <div class="form-group"><label>ETA</label><input type="datetime-local" id="m-eta" value="${j.eta?j.eta.replace(' ','T').substring(0,16):''}"></div>
+    <div class="form-group"><label>Description</label><textarea id="m-desc">${esc(j.description??'')}</textarea></div>
+    <div class="form-group"><label>Notes internes</label><textarea id="m-notes">${esc(j.notes_admin??'')}</textarea></div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    await put('/jobs/' + j.id, {
+      title: el('m-title').value,
+      description: el('m-desc').value,
+      client_id: +el('m-client').value,
+      quantity: +el('m-qty').value,
+      printer_id: +el('m-printer').value || null,
+      filament_id: +el('m-filament').value || null,
+      grams_used: el('m-grams').value || null,
+      print_hours: el('m-hours').value || null,
+      price_final: el('m-price').value || null,
+      layer_current: el('m-lc').value || null,
+      layer_total: el('m-lt').value || null,
+      eta: el('m-eta').value || null,
+      notes_admin: el('m-notes').value,
+    });
+    closeModal(); viewJob(j.id);
+  }}]);
+}
+
+// ── MODAL: change status ──────────────────────────────────────
+function modalStatus(j) {
+  const statuses = ['draft','queued','printing','done','picked_up','cancelled'];
+  openModal('Changer le statut', `
+    <div class="form-group"><label>Nouveau statut</label>
+      <select id="m-status">
+        ${statuses.map(s=>`<option value="${s}"${s===j.status?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Message (optionnel)</label>
+      <input id="m-msg" placeholder="Message visible par le client">
+    </div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Appliquer',cls:'btn-warning',click:async()=>{
+    await patch('/jobs/' + j.id + '/status', { status: el('m-status').value, message: el('m-msg').value || null });
+    closeModal(); viewJob(j.id);
+  }}]);
+}
+
+// ── CLIENTS ───────────────────────────────────────────────────
+async function viewClients() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const clients = await get('/clients');
+    html('view', `
+      <div class="page-title">
+        Clients
+        <button class="btn btn-primary" id="new-client-btn">+ Nouveau client</button>
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Dernier login</th><th></th></tr>
+        ${clients.map(c=>`<tr>
+          <td>${esc(c.name)}</td>
+          <td>${esc(c.email)}</td>
+          <td>${c.role}</td>
+          <td>${fmt(c.last_login)}</td>
+          <td>
+            <button class="btn btn-sm btn-ghost" onclick="editClient(${c.id},'${esc(c.name)}','${esc(c.email)}')">Modifier</button>
+            ${c.role==='client'?`<button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})">Supprimer</button>`:''}
+          </td>
+        </tr>`).join('')}
+      </table></div>
+    `);
+    el('new-client-btn').addEventListener('click', () => modalNewClient());
+  } catch(e) { html('view', errBox(e)); }
+}
+
+async function viewClient(id) { location.hash = '#clients'; }
+
+function modalNewClient() {
+  openModal('Nouveau compte', `
+    <div class="form-group"><label>Nom</label><input id="m-name"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="m-email"></div>
+    <div class="form-group"><label>Mot de passe</label><input type="password" id="m-pass" placeholder="Min. 8 caractères"></div>
+    <div class="form-group"><label>Rôle</label>
+      <select id="m-role"><option value="client">Client</option><option value="admin">Admin</option></select>
+    </div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Créer',cls:'btn-primary',click:async()=>{
+    await post('/auth/register', { name:el('m-name').value, email:el('m-email').value, password:el('m-pass').value, role:el('m-role').value });
+    closeModal(); viewClients();
+  }}]);
+}
+
+window.editClient = (id, name, email) => {
+  openModal('Modifier client', `
+    <div class="form-group"><label>Nom</label><input id="m-name" value="${esc(name)}"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="m-email" value="${esc(email)}"></div>
+    <div class="form-group"><label>Nouveau mot de passe (vide = inchangé)</label><input type="password" id="m-pass"></div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const b = { name:el('m-name').value, email:el('m-email').value };
+    if (el('m-pass').value) b.password = el('m-pass').value;
+    await put('/clients/' + id, b);
+    closeModal(); viewClients();
+  }}]);
+};
+
+window.deleteClient = async id => {
+  if (!confirm('Supprimer ce client ?')) return;
+  await del('/clients/' + id);
+  viewClients();
+};
+
+// ── PRINTERS ──────────────────────────────────────────────────
+async function viewPrinters() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const printers = await get('/printers');
+    html('view', `
+      <div class="page-title">
+        Imprimantes
+        <button class="btn btn-primary" id="new-printer-btn">+ Ajouter</button>
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>Nom</th><th>Active</th><th>Notes</th><th></th></tr>
+        ${printers.map(p=>`<tr>
+          <td>${esc(p.name)}</td>
+          <td>${p.active ? '✅' : '❌'}</td>
+          <td>${esc(p.notes??'')}</td>
+          <td>
+            <button class="btn btn-sm btn-ghost" onclick="editPrinter(${p.id},'${esc(p.name)}',${p.active},'${esc(p.notes??'')}')">Modifier</button>
+            <button class="btn btn-sm btn-danger" onclick="deletePrinter(${p.id})">Supprimer</button>
+          </td>
+        </tr>`).join('')}
+      </table></div>
+    `);
+    el('new-printer-btn').addEventListener('click', () => printerForm(null));
+  } catch(e) { html('view', errBox(e)); }
+}
+
+function printerForm(p) {
+  openModal(p ? 'Modifier imprimante' : 'Nouvelle imprimante', `
+    <div class="form-group"><label>Nom</label><input id="m-name" value="${esc(p?.name??'')}"></div>
+    <div class="form-group"><label>Notes</label><textarea id="m-notes">${esc(p?.notes??'')}</textarea></div>
+    <div class="form-group"><label><input type="checkbox" id="m-active" ${!p||p.active?'checked':''}> Active</label></div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const b = { name:el('m-name').value, notes:el('m-notes').value, active:el('m-active').checked?1:0 };
+    p ? await put('/printers/'+p.id, b) : await post('/printers', b);
+    closeModal(); viewPrinters();
+  }}]);
+}
+
+window.editPrinter = (id, name, active, notes) => printerForm({ id, name, active, notes });
+window.deletePrinter = async id => {
+  if (!confirm('Supprimer cette imprimante ?')) return;
+  await del('/printers/' + id); viewPrinters();
+};
+
+// ── FILAMENTS ─────────────────────────────────────────────────
+async function viewFilaments() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const filaments = await get('/filaments');
+    html('view', `
+      <div class="page-title">
+        Filaments
+        <button class="btn btn-primary" id="new-fil-btn">+ Ajouter</button>
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>Matière</th><th>Couleur</th><th>Marque</th><th>€/kg</th><th>Stock</th><th></th></tr>
+        ${filaments.map(f=>`<tr>
+          <td>${esc(f.material)}</td>
+          <td>${colorDot(f.color_hex)}${esc(f.color)}</td>
+          <td>${esc(f.brand??'')}</td>
+          <td>${money(f.price_per_kg)}</td>
+          <td style="color:${f.stock_grams<200?'var(--warning)':'inherit'}">${f.stock_grams}g</td>
+          <td>
+            <button class="btn btn-sm btn-ghost" onclick='editFilament(${JSON.stringify(f)})'>Modifier</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteFilament(${f.id})">✕</button>
+          </td>
+        </tr>`).join('')}
+      </table></div>
+    `);
+    el('new-fil-btn').addEventListener('click', () => filamentForm(null));
+  } catch(e) { html('view', errBox(e)); }
+}
+
+function filamentForm(f) {
+  openModal(f ? 'Modifier filament' : 'Nouveau filament', `
+    <div class="form-row">
+      <div class="form-group"><label>Matière</label>
+        <select id="m-mat">
+          ${['PLA','PETG','ABS','ASA','TPU','Nylon','PC','HIPS','PVA'].map(m=>`<option${f?.material===m?' selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Couleur</label><input id="m-color" value="${esc(f?.color??'')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Couleur hex</label><input type="color" id="m-hex" value="${f?.color_hex??'#888888'}"></div>
+      <div class="form-group"><label>Marque</label><input id="m-brand" value="${esc(f?.brand??'')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Prix/kg (€)</label><input type="number" step="0.01" id="m-price" value="${f?.price_per_kg??''}"></div>
+      <div class="form-group"><label>Stock (g)</label><input type="number" id="m-stock" value="${f?.stock_grams??'0'}"></div>
+    </div>
+    <div class="form-group"><label><input type="checkbox" id="m-active" ${!f||f.active?'checked':''}> Actif</label></div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const b = {
+      material:el('m-mat').value, color:el('m-color').value,
+      color_hex:el('m-hex').value, brand:el('m-brand').value,
+      price_per_kg:+el('m-price').value, stock_grams:+el('m-stock').value,
+      active:el('m-active').checked?1:0
+    };
+    f ? await put('/filaments/'+f.id, b) : await post('/filaments', b);
+    closeModal(); viewFilaments();
+  }}]);
+}
+
+window.editFilament = f => filamentForm(f);
+window.deleteFilament = async id => {
+  if (!confirm('Supprimer ce filament ?')) return;
+  await del('/filaments/' + id); viewFilaments();
+};
+
+// ── SETTINGS ──────────────────────────────────────────────────
+async function viewSettings() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const s = await get('/settings');
+    html('view', `
+      <div class="page-title">Paramètres</div>
+      <div class="card" style="max-width:480px">
+        <div class="form-group"><label>Nom de l'application</label><input id="s-name" value="${esc(s.app_name??'Print3D')}"></div>
+        <div class="form-group"><label>Taux horaire (€/h)</label><input type="number" step="0.01" id="s-rate" value="${esc(s.hourly_rate??'0.80')}"></div>
+        <div class="form-group"><label>Email de contact</label><input type="email" id="s-email" value="${esc(s.contact_email??'')}"></div>
+        <div class="form-group"><label><input type="checkbox" id="s-notify" ${s.notify_on_status==='1'?'checked':''}> Notifier le client par email à chaque changement de statut</label></div>
+        <button class="btn btn-primary" id="s-save">Enregistrer</button>
+      </div>
+    `);
+    el('s-save').addEventListener('click', async () => {
+      await post('/settings', {
+        app_name: el('s-name').value,
+        hourly_rate: el('s-rate').value,
+        contact_email: el('s-email').value,
+        notify_on_status: el('s-notify').checked ? '1' : '0',
+      });
+      el('s-save').textContent = 'Enregistré ✓';
+      setTimeout(() => { el('s-save').textContent = 'Enregistrer'; }, 1500);
+    });
+  } catch(e) { html('view', errBox(e)); }
+}
+
+// ── Modal helper ──────────────────────────────────────────────
+function openModal(title, bodyHtml, actions) {
+  el('modal-title').textContent = title;
+  html('modal-body', bodyHtml);
+  html('modal-actions', actions.map(a =>
+    `<button class="btn ${a.cls}" data-action="${a.label}">${a.label}</button>`
+  ).join(''));
+  actions.forEach(a => {
+    el('modal-actions').querySelector(`[data-action="${a.label}"]`).addEventListener('click', async () => {
+      try { await a.click(); }
+      catch(e) { alert(e.message); }
+    });
+  });
+  el('modal-overlay').classList.add('open');
+}
+
+function closeModal() { el('modal-overlay').classList.remove('open'); }
+el('modal-overlay').addEventListener('click', e => { if (e.target === el('modal-overlay')) closeModal(); });
+
+function errBox(e) {
+  return `<div class="alert alert-err">Erreur : ${esc(e.message)}</div>`;
+}
+
+// ── STL Viewer (Three.js) ─────────────────────────────────────
+let stlRenderer = null, stlAnimId = null;
+
+window.openStl = (url, name) => {
+  el('stl-modal-title').textContent = name;
+  el('stl-modal').classList.add('open');
+
+  if (stlAnimId) cancelAnimationFrame(stlAnimId);
+  if (stlRenderer) { stlRenderer.dispose(); stlRenderer = null; }
+
+  const wrap    = el('stl-viewer-wrap');
+  const canvas  = el('stl-canvas');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  const scene    = new THREE.Scene();
+  scene.background = new THREE.Color(0x12141e);
+
+  const camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 10000);
+  camera.position.set(0, 80, 200);
+
+  stlRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  stlRenderer.setPixelRatio(window.devicePixelRatio);
+  stlRenderer.setSize(W, H);
+
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const dir1 = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir1.position.set(1, 2, 3);
+  scene.add(dir1);
+  const dir2 = new THREE.DirectionalLight(0x8888ff, 0.4);
+  dir2.position.set(-2, -1, -1);
+  scene.add(dir2);
+
+  // Grid
+  const grid = new THREE.GridHelper(400, 20, 0x2e3348, 0x2e3348);
+  scene.add(grid);
+
+  const loader = new THREE.STLLoader();
+  loader.load(url, geo => {
+    geo.computeVertexNormals();
+    geo.center();
+    const mat  = new THREE.MeshPhongMaterial({ color: 0x4ecca3, specular: 0x222244, shininess: 60 });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    // Auto-scale to fit
+    const box = new THREE.Box3().setFromObject(mesh);
+    const sz  = box.getSize(new THREE.Vector3());
+    const max = Math.max(sz.x, sz.y, sz.z);
+    const scale = 150 / max;
+    mesh.scale.setScalar(scale);
+    mesh.position.y = (sz.y * scale) / 2;
+
+    scene.add(mesh);
+    camera.lookAt(0, (sz.y * scale)/2, 0);
+    controls.target.set(0, (sz.y * scale)/2, 0);
+    controls.update();
+  }, undefined, () => {
+    el('stl-modal-title').textContent = name + ' (erreur de chargement)';
+  });
+
+  const animate = () => {
+    stlAnimId = requestAnimationFrame(animate);
+    controls.update();
+    stlRenderer.render(scene, camera);
+  };
+  animate();
+
+  const onResize = () => {
+    const W2 = wrap.clientWidth, H2 = wrap.clientHeight;
+    camera.aspect = W2/H2;
+    camera.updateProjectionMatrix();
+    stlRenderer.setSize(W2, H2);
+  };
+  window.addEventListener('resize', onResize);
+  el('stl-close')._cleanup = () => window.removeEventListener('resize', onResize);
+};
+
+el('stl-close').addEventListener('click', () => {
+  el('stl-modal').classList.remove('open');
+  if (stlAnimId) cancelAnimationFrame(stlAnimId);
+  if (stlRenderer) { stlRenderer.dispose(); stlRenderer = null; }
+  if (el('stl-close')._cleanup) el('stl-close')._cleanup();
+});
+el('stl-modal').addEventListener('click', e => { if (e.target === el('stl-modal')) el('stl-close').click(); });
+
+// ── Boot ──────────────────────────────────────────────────────
+(async () => {
+  if (token()) {
+    try {
+      _user = await get('/auth/me');
+      startApp();
+      return;
+    } catch(e) { clearAuth(); }
+  }
+  initLogin();
+})();

@@ -1,0 +1,40 @@
+services:
+
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST:         db
+      DB_NAME:         ${DB_NAME:-print3d}
+      DB_USER:         ${DB_USER:-print3d_user}
+      DB_PASS:         ${DB_PASS}
+      JWT_SECRET:      ${JWT_SECRET}
+      APP_URL:         ${APP_URL}
+      APP_ENV:         production
+      MAIL_FROM:       ${MAIL_FROM:-noreply@example.com}
+      MAIL_FROM_NAME:  ${MAIL_FROM_NAME:-Print3D}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      MYSQL_DATABASE:      ${DB_NAME:-print3d}
+      MYSQL_USER:          ${DB_USER:-print3d_user}
+      MYSQL_PASSWORD:      ${DB_PASS}
+    volumes:
+      - ./database.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASS}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  db_data:
