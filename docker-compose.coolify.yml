@@ -15,11 +15,8 @@ services:
       MAIL_FROM:       ${MAIL_FROM:-noreply@example.com}
       MAIL_FROM_NAME:  ${MAIL_FROM_NAME:-Print3D}
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     restart: unless-stopped
-    ports:
-      - "80"
     networks:
       - coolify
       - internal
@@ -35,7 +32,7 @@ services:
       - ./database.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASS}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 12
