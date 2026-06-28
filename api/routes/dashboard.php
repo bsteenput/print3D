@@ -32,7 +32,7 @@ $recent_jobs = $pdo->query(
 )->fetchAll();
 
 $low_stock = $pdo->query(
-    "SELECT id, material, color, color_hex, stock_grams FROM filaments
+    "SELECT id, material, print_type, color, color_hex, stock_grams FROM filaments
      WHERE stock_grams < 200 AND active = 1 ORDER BY stock_grams"
 )->fetchAll();
 

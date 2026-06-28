@@ -127,13 +127,14 @@ async function viewDashboard() {
       </div>
       ${d.low_stock.length ? `
       <div class="card">
-        <h2>⚠️ Stock bas (&lt;200g)</h2>
+        <h2>⚠️ Stock bas</h2>
         <div class="table-wrap"><table>
-          <tr><th>Matière</th><th>Couleur</th><th>Stock</th></tr>
+          <tr><th>Matière</th><th>Type</th><th>Couleur</th><th>Stock</th></tr>
           ${d.low_stock.map(f=>`<tr>
             <td>${esc(f.material)}</td>
+            <td>${f.print_type === 'resin' ? 'Résine' : 'FDM'}</td>
             <td>${colorDot(f.color_hex)}${esc(f.color)}</td>
-            <td><strong style="color:var(--warning)">${f.stock_grams}g</strong></td>
+            <td><strong style="color:var(--warning)">${f.stock_grams}${f.print_type === 'resin' ? 'ml' : 'g'}</strong></td>
           </tr>`).join('')}
         </table></div>
       </div>` : ''}
@@ -241,8 +242,10 @@ async function viewJob(id) {
               <tr><td style="color:var(--muted)">Client</td><td>${esc(j.client_name)}</td></tr>
               <tr><td style="color:var(--muted)">Quantité</td><td>${j.quantity}</td></tr>
               <tr><td style="color:var(--muted)">Imprimante</td><td>${esc(j.printer_name ?? '—')}</td></tr>
-              <tr><td style="color:var(--muted)">Filament</td><td>${j.filament_material ? colorDot(j.color_hex)+esc(j.filament_material)+' '+esc(j.filament_color) : '—'}</td></tr>
-              <tr><td style="color:var(--muted)">Grammes</td><td>${j.grams_used ? j.grams_used+'g' : '—'}</td></tr>
+              <tr><td style="color:var(--muted)">${j.print_type === 'resin' ? 'Résine' : 'Filament'}</td><td>${j.filament_material ? colorDot(j.color_hex)+esc(j.filament_material)+' '+esc(j.filament_color) : '—'}</td></tr>
+              ${j.print_type === 'resin'
+                ? `<tr><td style="color:var(--muted)">Volume</td><td>${j.ml_used ? j.ml_used+'ml' : '—'}</td></tr>`
+                : `<tr><td style="color:var(--muted)">Grammes</td><td>${j.grams_used ? j.grams_used+'g' : '—'}</td></tr>`}
               <tr><td style="color:var(--muted)">Durée</td><td>${j.print_hours ? j.print_hours+'h' : '—'}</td></tr>
               <tr><td style="color:var(--muted)">ETA</td><td>${fmt(j.eta)}</td></tr>
               <tr><td style="color:var(--muted)">Prix auto</td><td>${j.price_auto ? money(j.price_auto) : '—'}</td></tr>
@@ -455,6 +458,10 @@ async function modalNewJob() {
   const [clients, printers, filaments] = await Promise.all([
     get('/clients'), get('/printers'), get('/filaments')
   ]);
+  window._newJobFilaments = filaments.filter(f => f.active);
+  const fdmOpts = () => window._newJobFilaments
+    .filter(f => (f.print_type||'fdm') === 'fdm')
+    .map(f => `<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
   openModal('Nouveau job', `
     <div class="form-row">
       <div class="form-group"><label>Client</label>
@@ -464,12 +471,18 @@ async function modalNewJob() {
     </div>
     <div class="form-group"><label>Titre</label><input id="m-title" placeholder="Ex: Pied de lampe"></div>
     <div class="form-group"><label>Description</label><textarea id="m-desc" rows="3"></textarea></div>
+    <div class="form-group"><label>Type d'impression</label>
+      <select id="m-ptype" onchange="toggleNewJobType()">
+        <option value="fdm">FDM (filament)</option>
+        <option value="resin">Résine</option>
+      </select>
+    </div>
     <div class="form-row">
       <div class="form-group"><label>Imprimante</label>
         <select id="m-printer"><option value="">—</option>${printers.filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
       </div>
-      <div class="form-group"><label>Filament</label>
-        <select id="m-filament"><option value="">—</option>${filaments.filter(f=>f.active).map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('')}</select>
+      <div class="form-group"><label id="m-mat-label">Filament</label>
+        <select id="m-filament"><option value="">—</option>${fdmOpts()}</select>
       </div>
     </div>
     <div class="form-group"><label>Notes internes</label><textarea id="m-notes" rows="2"></textarea></div>
@@ -477,6 +490,7 @@ async function modalNewJob() {
     const b = {
       title: el('m-title').value, description: el('m-desc').value,
       client_id: +el('m-client').value, quantity: +el('m-qty').value,
+      print_type: el('m-ptype').value,
       printer_id: +el('m-printer').value || null,
       filament_id: +el('m-filament').value || null,
       notes_admin: el('m-notes').value,
@@ -486,17 +500,26 @@ async function modalNewJob() {
   }}]);
 }
 
+window.toggleNewJobType = () => {
+  const isResin = el('m-ptype').value === 'resin';
+  el('m-mat-label').textContent = isResin ? 'Résine' : 'Filament';
+  const filtered = (window._newJobFilaments || []).filter(f => (f.print_type||'fdm') === (isResin ? 'resin' : 'fdm'));
+  el('m-filament').innerHTML = `<option value="">—</option>` +
+    filtered.map(f => `<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
+};
+
 // ── MODAL: new job (client) ───────────────────────────────────
 async function modalNewJobClient() {
   const filaments = await get('/filaments');
-  const active = filaments.filter(f => f.active);
-  const byMaterial = active.reduce((acc, f) => {
-    (acc[f.material] = acc[f.material] || []).push(f);
-    return acc;
-  }, {});
-  const filamentOptions = Object.entries(byMaterial).map(([mat, list]) =>
-    `<optgroup label="${esc(mat)}">${list.map(f => `<option value="${f.id}">${esc(f.color)}</option>`).join('')}</optgroup>`
-  ).join('');
+  window._clientJobFilaments = filaments.filter(f => f.active);
+  const buildClientFilOpts = type => {
+    const list = window._clientJobFilaments.filter(f => (f.print_type||'fdm') === type);
+    const byMat = list.reduce((acc, f) => { (acc[f.material]=acc[f.material]||[]).push(f); return acc; }, {});
+    return `<option value="">— Sans préférence —</option>` +
+      Object.entries(byMat).map(([mat, fs]) =>
+        `<optgroup label="${esc(mat)}">${fs.map(f=>`<option value="${f.id}">${esc(f.color)}</option>`).join('')}</optgroup>`
+      ).join('');
+  };
   openModal('Nouvelle demande d\'impression', `
     <div class="form-group">
       <label>Titre <span style="color:var(--danger)">*</span></label>
@@ -512,14 +535,18 @@ async function modalNewJobClient() {
         <input type="number" id="m-qty" value="1" min="1" max="10">
       </div>
       <div class="form-group">
-        <label>Filament souhaité</label>
-        <select id="m-filament">
-          <option value="">— Sans préférence —</option>
-          ${filamentOptions}
+        <label>Technologie</label>
+        <select id="m-ptype" onchange="toggleClientJobType()">
+          <option value="fdm">FDM (plastique)</option>
+          <option value="resin">Résine</option>
         </select>
       </div>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:8px">Vous pourrez uploader vos fichiers STL après création.</p>
+    <div class="form-group">
+      <label id="m-mat-label">Filament souhaité</label>
+      <select id="m-filament">${buildClientFilOpts('fdm')}</select>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px">Vous pourrez uploader vos fichiers STL/3MF après création.</p>
   `, [
     { label: 'Annuler', cls: 'btn-ghost', click: closeModal },
     { label: 'Créer la demande', cls: 'btn-primary', click: async () => {
@@ -531,6 +558,7 @@ async function modalNewJobClient() {
         title,
         description: el('m-desc').value,
         quantity: qty,
+        print_type: el('m-ptype').value,
         filament_id: +el('m-filament').value || null,
       });
       closeModal();
@@ -539,8 +567,24 @@ async function modalNewJobClient() {
   ]);
 }
 
+window.toggleClientJobType = () => {
+  const isResin = el('m-ptype').value === 'resin';
+  el('m-mat-label').textContent = isResin ? 'Résine souhaitée' : 'Filament souhaité';
+  const list = (window._clientJobFilaments || []).filter(f => (f.print_type||'fdm') === (isResin ? 'resin' : 'fdm'));
+  const byMat = list.reduce((acc, f) => { (acc[f.material]=acc[f.material]||[]).push(f); return acc; }, {});
+  el('m-filament').innerHTML = `<option value="">— Sans préférence —</option>` +
+    Object.entries(byMat).map(([mat, fs]) =>
+      `<optgroup label="${esc(mat)}">${fs.map(f=>`<option value="${f.id}">${esc(f.color)}</option>`).join('')}</optgroup>`
+    ).join('');
+};
+
 // ── MODAL: edit job ───────────────────────────────────────────
 function modalEditJob(j, clients, printers, filaments) {
+  const isResin = j.print_type === 'resin';
+  const filByType = t => filaments.filter(f => (f.print_type||'fdm') === t);
+  const filOpts = (list, selId) => `<option value="">—</option>` +
+    list.map(f=>`<option value="${f.id}"${+f.id===+selId?' selected':''}>${esc(f.material)} ${esc(f.color)}</option>`).join('');
+  window._editJobFilaments = filaments;
   openModal('Modifier ' + j.ref, `
     <div class="form-group"><label>Titre</label><input id="m-title" value="${esc(j.title)}"></div>
     <div class="form-row">
@@ -549,16 +593,27 @@ function modalEditJob(j, clients, printers, filaments) {
       </div>
       <div class="form-group"><label>Quantité</label><input type="number" id="m-qty" value="${j.quantity}" min="1"></div>
     </div>
+    <div class="form-group"><label>Type d'impression</label>
+      <select id="m-ptype" onchange="toggleEditJobType()">
+        <option value="fdm"${!isResin?' selected':''}>FDM (filament)</option>
+        <option value="resin"${isResin?' selected':''}>Résine</option>
+      </select>
+    </div>
     <div class="form-row">
       <div class="form-group"><label>Imprimante</label>
         <select id="m-printer"><option value="">—</option>${printers.map(p=>`<option value="${p.id}"${+p.id===+j.printer_id?' selected':''}>${esc(p.name)}</option>`).join('')}</select>
       </div>
-      <div class="form-group"><label>Filament</label>
-        <select id="m-filament"><option value="">—</option>${filaments.map(f=>`<option value="${f.id}"${+f.id===+j.filament_id?' selected':''}>${esc(f.material)} ${esc(f.color)}</option>`).join('')}</select>
+      <div class="form-group"><label id="m-mat-label">${isResin ? 'Résine' : 'Filament'}</label>
+        <select id="m-filament">${filOpts(filByType(isResin?'resin':'fdm'), j.filament_id)}</select>
       </div>
     </div>
     <div class="form-row-3">
-      <div class="form-group"><label>Grammes</label><input type="number" step="0.1" id="m-grams" value="${j.grams_used??''}"></div>
+      <div class="form-group" id="fg-grams"${isResin?' style="display:none"':''}>
+        <label>Grammes utilisés</label><input type="number" step="0.1" id="m-grams" value="${j.grams_used??''}">
+      </div>
+      <div class="form-group" id="fg-ml"${!isResin?' style="display:none"':''}>
+        <label>Volume résine (ml)</label><input type="number" step="0.1" id="m-ml" value="${j.ml_used??''}">
+      </div>
       <div class="form-group"><label>Heures</label><input type="number" step="0.1" id="m-hours" value="${j.print_hours??''}"></div>
       <div class="form-group"><label>Prix final (€)</label><input type="number" step="0.01" id="m-price" value="${j.price_final??''}"></div>
     </div>
@@ -570,14 +625,17 @@ function modalEditJob(j, clients, printers, filaments) {
     <div class="form-group"><label>Description</label><textarea id="m-desc">${esc(j.description??'')}</textarea></div>
     <div class="form-group"><label>Notes internes</label><textarea id="m-notes">${esc(j.notes_admin??'')}</textarea></div>
   `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const r = el('m-ptype').value === 'resin';
     await put('/jobs/' + j.id, {
       title: el('m-title').value,
       description: el('m-desc').value,
       client_id: +el('m-client').value,
       quantity: +el('m-qty').value,
+      print_type: el('m-ptype').value,
       printer_id: +el('m-printer').value || null,
       filament_id: +el('m-filament').value || null,
-      grams_used: el('m-grams').value || null,
+      grams_used: r ? null : (el('m-grams').value || null),
+      ml_used:    r ? (el('m-ml').value || null) : null,
       print_hours: el('m-hours').value || null,
       price_final: el('m-price').value || null,
       layer_current: el('m-lc').value || null,
@@ -588,6 +646,16 @@ function modalEditJob(j, clients, printers, filaments) {
     closeModal(); viewJob(j.id);
   }}]);
 }
+
+window.toggleEditJobType = () => {
+  const isResin = el('m-ptype').value === 'resin';
+  el('fg-grams').style.display = isResin ? 'none' : '';
+  el('fg-ml').style.display    = isResin ? '' : 'none';
+  el('m-mat-label').textContent = isResin ? 'Résine' : 'Filament';
+  const filtered = (window._editJobFilaments || []).filter(f => (f.print_type||'fdm') === (isResin ? 'resin' : 'fdm'));
+  el('m-filament').innerHTML = `<option value="">—</option>` +
+    filtered.map(f => `<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
+};
 
 // ── MODAL: change status ──────────────────────────────────────
 function modalStatus(j) {
@@ -724,17 +792,20 @@ async function viewFilaments() {
     const filaments = await get('/filaments');
     html('view', `
       <div class="page-title">
-        Filaments
+        Matériaux
         <button class="btn btn-primary" id="new-fil-btn">+ Ajouter</button>
       </div>
       <div class="table-wrap"><table>
-        <tr><th>Matière</th><th>Couleur</th><th>Marque</th><th>€/kg</th><th>Stock</th><th></th></tr>
+        <tr><th>Type</th><th>Matière</th><th>Couleur</th><th>Marque</th><th>Prix</th><th>Stock</th><th></th></tr>
         ${filaments.map(f=>`<tr>
+          <td>${f.print_type === 'resin'
+            ? '<span class="badge badge-printing" style="font-size:10px">Résine</span>'
+            : '<span style="font-size:11px;color:var(--muted)">FDM</span>'}</td>
           <td>${esc(f.material)}</td>
           <td>${colorDot(f.color_hex)}${esc(f.color)}</td>
           <td>${esc(f.brand??'')}</td>
-          <td>${money(f.price_per_kg)}</td>
-          <td style="color:${f.stock_grams<200?'var(--warning)':'inherit'}">${f.stock_grams}g</td>
+          <td>${f.print_type === 'resin' ? money(f.price_per_litre)+'/L' : money(f.price_per_kg)+'/kg'}</td>
+          <td style="color:${f.stock_grams<200?'var(--warning)':'inherit'}">${f.stock_grams}${f.print_type === 'resin' ? 'ml' : 'g'}</td>
           <td>
             <button class="btn btn-sm btn-ghost" onclick='editFilament(${JSON.stringify(f)})'>Modifier</button>
             <button class="btn btn-sm btn-danger" onclick="deleteFilament(${f.id})">✕</button>
@@ -746,13 +817,22 @@ async function viewFilaments() {
   } catch(e) { html('view', errBox(e)); }
 }
 
+const FDM_MATS   = ['PLA','PETG','ABS','ASA','TPU','Nylon','PC','HIPS','PVA'];
+const RESIN_MATS = ['Standard','ABS-Like','Flexible','Water-Washable','Plant-Based','Engineering'];
+
 function filamentForm(f) {
-  openModal(f ? 'Modifier filament' : 'Nouveau filament', `
+  const isResin = f?.print_type === 'resin';
+  const matOpts = list => list.map(m => `<option${f?.material===m?' selected':''}>${m}</option>`).join('');
+  openModal(f ? 'Modifier matériau' : 'Nouveau matériau', `
+    <div class="form-group"><label>Type d'impression</label>
+      <select id="m-ptype" onchange="toggleFilamentType()">
+        <option value="fdm"${!isResin?' selected':''}>FDM (filament)</option>
+        <option value="resin"${isResin?' selected':''}>Résine</option>
+      </select>
+    </div>
     <div class="form-row">
       <div class="form-group"><label>Matière</label>
-        <select id="m-mat">
-          ${['PLA','PETG','ABS','ASA','TPU','Nylon','PC','HIPS','PVA'].map(m=>`<option${f?.material===m?' selected':''}>${m}</option>`).join('')}
-        </select>
+        <select id="m-mat">${isResin ? matOpts(RESIN_MATS) : matOpts(FDM_MATS)}</select>
       </div>
       <div class="form-group"><label>Couleur</label><input id="m-color" value="${esc(f?.color??'')}"></div>
     </div>
@@ -761,21 +841,39 @@ function filamentForm(f) {
       <div class="form-group"><label>Marque</label><input id="m-brand" value="${esc(f?.brand??'')}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Prix/kg (€)</label><input type="number" step="0.01" id="m-price" value="${f?.price_per_kg??''}"></div>
-      <div class="form-group"><label>Stock (g)</label><input type="number" id="m-stock" value="${f?.stock_grams??'0'}"></div>
+      <div class="form-group">
+        <label id="fg-price-label">${isResin ? 'Prix/L (€)' : 'Prix/kg (€)'}</label>
+        <input type="number" step="0.01" id="m-price" value="${isResin ? (f?.price_per_litre??'') : (f?.price_per_kg??'')}">
+      </div>
+      <div class="form-group">
+        <label id="fg-stock-label">${isResin ? 'Stock (ml)' : 'Stock (g)'}</label>
+        <input type="number" id="m-stock" value="${f?.stock_grams??'0'}">
+      </div>
     </div>
     <div class="form-group"><label><input type="checkbox" id="m-active" ${!f||f.active?'checked':''}> Actif</label></div>
   `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const r = el('m-ptype').value === 'resin';
     const b = {
-      material:el('m-mat').value, color:el('m-color').value,
-      color_hex:el('m-hex').value, brand:el('m-brand').value,
-      price_per_kg:+el('m-price').value, stock_grams:+el('m-stock').value,
-      active:el('m-active').checked?1:0
+      print_type: el('m-ptype').value,
+      material: el('m-mat').value, color: el('m-color').value,
+      color_hex: el('m-hex').value, brand: el('m-brand').value,
+      price_per_kg:     r ? null : +el('m-price').value,
+      price_per_litre:  r ? +el('m-price').value : null,
+      stock_grams: +el('m-stock').value,
+      active: el('m-active').checked ? 1 : 0,
     };
     f ? await put('/filaments/'+f.id, b) : await post('/filaments', b);
     closeModal(); viewFilaments();
   }}]);
 }
+
+window.toggleFilamentType = () => {
+  const isResin = el('m-ptype').value === 'resin';
+  el('m-mat').innerHTML = (isResin ? RESIN_MATS : FDM_MATS).map(m => `<option>${m}</option>`).join('');
+  el('fg-price-label').textContent = isResin ? 'Prix/L (€)' : 'Prix/kg (€)';
+  el('fg-stock-label').textContent = isResin ? 'Stock (ml)' : 'Stock (g)';
+  el('m-price').value = '';
+};
 
 window.editFilament = f => filamentForm(f);
 window.deleteFilament = async id => {

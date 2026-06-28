@@ -15,7 +15,8 @@ if ($method === 'GET' && $id === null) {
                         : "WHERE j.status = " . $pdo->quote($status);
     }
     $rows = $pdo->query(
-        "SELECT j.id, j.ref, j.title, j.status, j.quantity, j.grams_used, j.print_hours,
+        "SELECT j.id, j.ref, j.title, j.status, j.quantity, j.print_type,
+                j.grams_used, j.ml_used, j.print_hours,
                 j.price_final, j.eta, j.created_at, j.updated_at, j.queue_order,
                 u.name AS client_name, p.name AS printer_name,
                 f.material AS filament_material, f.color AS filament_color, f.color_hex
@@ -35,7 +36,7 @@ if ($method === 'GET' && $id !== null && $sub === null) {
         "SELECT j.*, u.name AS client_name, u.email AS client_email,
                 p.name AS printer_name,
                 f.material AS filament_material, f.color AS filament_color,
-                f.color_hex, f.price_per_kg
+                f.color_hex, f.price_per_kg, f.price_per_litre, f.print_type AS filament_type
          FROM jobs j
          LEFT JOIN users u     ON u.id = j.client_id
          LEFT JOIN printers p  ON p.id = j.printer_id
@@ -80,14 +81,15 @@ if ($method === 'POST' && $id === null && $sub === null) {
     $b = body();
     if (empty($b['title'])) json_err('Titre requis');
 
-    $client_id = $is_admin ? (int)($b['client_id'] ?? $user['id']) : (int)$user['id'];
-    $hourly    = (float)($pdo->query("SELECT value FROM settings WHERE key_name='hourly_rate'")->fetchColumn() ?? 0.80);
-    $ref       = next_job_ref();
+    $client_id  = $is_admin ? (int)($b['client_id'] ?? $user['id']) : (int)$user['id'];
+    $hourly     = (float)($pdo->query("SELECT value FROM settings WHERE key_name='hourly_rate'")->fetchColumn() ?? 0.80);
+    $ref        = next_job_ref();
+    $print_type = ($b['print_type'] ?? '') === 'resin' ? 'resin' : 'fdm';
 
     $stmt = $pdo->prepare(
         'INSERT INTO jobs (ref, client_id, printer_id, filament_id, title, description,
-                           quantity, status, hourly_rate, notes_admin, queue_order)
-         VALUES (?,?,?,?,?,?,?,?,?,?,
+                           quantity, print_type, status, hourly_rate, notes_admin, queue_order)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,
                  (SELECT COALESCE(MAX(queue_order),0)+1 FROM jobs j2))'
     );
     $stmt->execute([
@@ -97,6 +99,7 @@ if ($method === 'POST' && $id === null && $sub === null) {
         $b['title'],
         $b['description'] ?? null,
         (int)($b['quantity'] ?? 1),
+        $print_type,
         $is_admin ? ($b['status'] ?? 'queued') : 'queued',
         $hourly,
         $is_admin ? ($b['notes_admin'] ?? null) : null,
@@ -119,16 +122,28 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
     $job = $stmt->fetch();
     if (!$job) json_err('Job introuvable', 404);
 
-    // Recalcul prix auto si filament/heures fournis
+    // Recalcul prix auto selon le type d'impression
     $price_auto = $job['price_auto'];
-    $grams  = isset($b['grams_used'])  ? (float)$b['grams_used']  : (float)$job['grams_used'];
-    $hours  = isset($b['print_hours']) ? (float)$b['print_hours'] : (float)$job['print_hours'];
-    if ($grams > 0 && $hours > 0) {
-        $fil_id = (int)($b['filament_id'] ?? $job['filament_id']);
-        if ($fil_id) {
-            $ppkg = (float)$pdo->prepare('SELECT price_per_kg FROM filaments WHERE id=?')
-                        ->execute([$fil_id]) ? $pdo->query("SELECT price_per_kg FROM filaments WHERE id=$fil_id")->fetchColumn() : 0;
-            $price_auto = calc_price_auto($grams, $hours, (float)$ppkg, (float)$job['hourly_rate']);
+    $print_type = ($b['print_type'] ?? $job['print_type'] ?? 'fdm') === 'resin' ? 'resin' : 'fdm';
+    $hours      = isset($b['print_hours']) ? (float)$b['print_hours'] : (float)$job['print_hours'];
+
+    if ($print_type === 'resin') {
+        $ml = isset($b['ml_used']) ? (float)$b['ml_used'] : (float)$job['ml_used'];
+        if ($ml > 0 && $hours > 0) {
+            $fil_id = (int)($b['filament_id'] ?? $job['filament_id']);
+            if ($fil_id) {
+                $ppl = (float)$pdo->query("SELECT price_per_litre FROM filaments WHERE id=$fil_id")->fetchColumn();
+                $price_auto = calc_price_auto($ml, $hours, $ppl, (float)$job['hourly_rate']);
+            }
+        }
+    } else {
+        $grams = isset($b['grams_used']) ? (float)$b['grams_used'] : (float)$job['grams_used'];
+        if ($grams > 0 && $hours > 0) {
+            $fil_id = (int)($b['filament_id'] ?? $job['filament_id']);
+            if ($fil_id) {
+                $ppkg = (float)$pdo->query("SELECT price_per_kg FROM filaments WHERE id=$fil_id")->fetchColumn();
+                $price_auto = calc_price_auto($grams, $hours, $ppkg, (float)$job['hourly_rate']);
+            }
         }
     }
 
@@ -137,8 +152,8 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
 
     $stmt = $pdo->prepare(
         'UPDATE jobs SET
-            title=?, description=?, quantity=?, printer_id=?, filament_id=?,
-            grams_used=?, print_hours=?, layer_current=?, layer_total=?,
+            title=?, description=?, quantity=?, print_type=?, printer_id=?, filament_id=?,
+            grams_used=?, ml_used=?, print_hours=?, layer_current=?, layer_total=?,
             eta=?, started_at=?, finished_at=?, picked_up_at=?,
             price_auto=?, price_final=?, price_adjusted=?,
             notes_admin=?, queue_order=?
@@ -148,9 +163,11 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
         $b['title']         ?? $job['title'],
         $b['description']   ?? $job['description'],
         (int)($b['quantity']      ?? $job['quantity']),
+        $print_type,
         !empty($b['printer_id'])  ? (int)$b['printer_id']  : $job['printer_id'],
         !empty($b['filament_id']) ? (int)$b['filament_id'] : $job['filament_id'],
-        $b['grams_used']    ?? $job['grams_used'],
+        array_key_exists('grams_used', $b) ? $b['grams_used'] : $job['grams_used'],
+        array_key_exists('ml_used',    $b) ? $b['ml_used']    : $job['ml_used'],
         $b['print_hours']   ?? $job['print_hours'],
         $b['layer_current'] ?? $job['layer_current'],
         $b['layer_total']   ?? $job['layer_total'],

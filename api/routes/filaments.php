@@ -23,16 +23,19 @@ if ($user['role'] !== 'admin') json_err('Accès refusé', 403);
 // ── POST /api/filaments ───────────────────────────────────────
 if ($method === 'POST' && $id === null) {
     $b = body();
-    foreach (['material', 'color', 'price_per_kg'] as $f) {
-        if (empty($b[$f])) json_err("Champ requis : $f");
-    }
+    $print_type = ($b['print_type'] ?? '') === 'resin' ? 'resin' : 'fdm';
+    if (empty($b['material']) || empty($b['color'])) json_err('Champs requis : material, color');
+    if ($print_type === 'resin' && empty($b['price_per_litre'])) json_err('Champ requis : price_per_litre');
+    if ($print_type === 'fdm'   && empty($b['price_per_kg']))    json_err('Champ requis : price_per_kg');
     $stmt = db()->prepare(
-        'INSERT INTO filaments (material, color, color_hex, brand, price_per_kg, stock_grams, active)
-         VALUES (?,?,?,?,?,?,?)'
+        'INSERT INTO filaments (material, print_type, color, color_hex, brand, price_per_kg, price_per_litre, stock_grams, active)
+         VALUES (?,?,?,?,?,?,?,?,?)'
     );
     $stmt->execute([
-        $b['material'], $b['color'], $b['color_hex'] ?? null, $b['brand'] ?? null,
-        (float)$b['price_per_kg'], (int)($b['stock_grams'] ?? 0), (int)($b['active'] ?? 1),
+        $b['material'], $print_type, $b['color'], $b['color_hex'] ?? null, $b['brand'] ?? null,
+        $print_type === 'fdm'   ? (float)$b['price_per_kg']    : null,
+        $print_type === 'resin' ? (float)$b['price_per_litre'] : null,
+        (int)($b['stock_grams'] ?? 0), (int)($b['active'] ?? 1),
     ]);
     json_ok(['id' => (int)db()->lastInsertId()], 201);
 }
@@ -40,14 +43,16 @@ if ($method === 'POST' && $id === null) {
 // ── PUT /api/filaments/{id} ───────────────────────────────────
 if ($method === 'PUT' && $id !== null) {
     $b = body();
+    $print_type = ($b['print_type'] ?? '') === 'resin' ? 'resin' : 'fdm';
     $stmt = db()->prepare(
-        'UPDATE filaments SET material=?, color=?, color_hex=?, brand=?,
-         price_per_kg=?, stock_grams=?, active=? WHERE id=?'
+        'UPDATE filaments SET material=?, print_type=?, color=?, color_hex=?, brand=?,
+         price_per_kg=?, price_per_litre=?, stock_grams=?, active=? WHERE id=?'
     );
     $stmt->execute([
-        $b['material'] ?? '', $b['color'] ?? '', $b['color_hex'] ?? null, $b['brand'] ?? null,
-        (float)($b['price_per_kg'] ?? 0), (int)($b['stock_grams'] ?? 0),
-        (int)($b['active'] ?? 1), $id,
+        $b['material'] ?? '', $print_type, $b['color'] ?? '', $b['color_hex'] ?? null, $b['brand'] ?? null,
+        $print_type === 'fdm'   ? (float)($b['price_per_kg']    ?? 0) : null,
+        $print_type === 'resin' ? (float)($b['price_per_litre'] ?? 0) : null,
+        (int)($b['stock_grams'] ?? 0), (int)($b['active'] ?? 1), $id,
     ]);
     json_ok(['updated' => true]);
 }
