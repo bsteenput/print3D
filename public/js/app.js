@@ -82,6 +82,7 @@ async function startApp() {
 
 // ── Router ────────────────────────────────────────────────────
 function route() {
+  stopMonitor();
   const hash = location.hash.replace('#', '') || 'dashboard';
   const [page, param] = hash.split('/');
 
@@ -239,7 +240,11 @@ async function viewJob(id) {
             ${j.description ? `<hr style="border-color:var(--border);margin:16px 0"><p style="color:var(--muted)">${esc(j.description)}</p>` : ''}
             ${isAdmin && j.notes_admin ? `<hr style="border-color:var(--border);margin:16px 0"><p style="font-size:12px;color:var(--warning)">🔒 ${esc(j.notes_admin)}</p>` : ''}
           </div>
-          ${pct !== null ? `
+          ${j.status === 'printing' ? `
+          <div class="card">
+            <h2>🔴 Live — Elegoo Saturn 4 Ultra</h2>
+            <div id="monitor-box"><div style="color:var(--muted);font-size:12px">Connexion à l'imprimante…</div></div>
+          </div>` : pct !== null ? `
           <div class="card">
             <h2>Progression</h2>
             ${progressBar(j.layer_current, j.layer_total)}
@@ -296,6 +301,11 @@ async function viewJob(id) {
         if (json.ok) setTimeout(() => viewJob(id), 800);
       } catch(e) { el('upload-status').textContent = 'Erreur upload'; }
     });
+
+    // Démarre le monitor temps réel si le job est en cours d'impression
+    if (j.status === 'printing') {
+      startMonitor(id);
+    }
 
     if (isAdmin) {
       el('edit-job-btn')?.addEventListener('click', () => modalEditJob(j, clients, printers, filaments));
@@ -440,11 +450,11 @@ async function viewClients() {
         <tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Dernier login</th><th></th></tr>
         ${clients.map(c=>`<tr>
           <td>${esc(c.name)}</td>
-          <td>${esc(c.email)}</td>
+          <td>${c.email ? esc(c.email) : '<span class="badge badge-draft" style="font-size:9px">Pas de compte</span>'}</td>
           <td>${c.role}</td>
           <td>${fmt(c.last_login)}</td>
           <td>
-            <button class="btn btn-sm btn-ghost" onclick="editClient(${c.id},'${esc(c.name)}','${esc(c.email)}')">Modifier</button>
+            <button class="btn btn-sm btn-ghost" onclick="editClient(${c.id},'${esc(c.name)}','${esc(c.email??'')}')">Modifier</button>
             ${c.role==='client'?`<button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})">Supprimer</button>`:''}
           </td>
         </tr>`).join('')}
@@ -459,8 +469,8 @@ async function viewClient(id) { location.hash = '#clients'; }
 function modalNewClient() {
   openModal('Nouveau compte', `
     <div class="form-group"><label>Nom</label><input id="m-name"></div>
-    <div class="form-group"><label>Email</label><input type="email" id="m-email"></div>
-    <div class="form-group"><label>Mot de passe</label><input type="password" id="m-pass" placeholder="Min. 8 caractères"></div>
+    <div class="form-group"><label>Email <span style="font-weight:400;font-size:11px;color:var(--muted)">(optionnel)</span></label><input type="email" id="m-email" placeholder="Laisser vide pour créer sans accès"></div>
+    <div class="form-group"><label>Mot de passe <span style="font-weight:400;font-size:11px;color:var(--muted)">(optionnel)</span></label><input type="password" id="m-pass" placeholder="Min. 8 caractères — laisser vide"></div>
     <div class="form-group"><label>Rôle</label>
       <select id="m-role"><option value="client">Client</option><option value="admin">Admin</option></select>
     </div>
@@ -471,10 +481,12 @@ function modalNewClient() {
 }
 
 window.editClient = (id, name, email) => {
+  const noEmail = !email;
   openModal('Modifier client', `
+    ${noEmail ? '<div style="background:#bfdbfe;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">Ce client n\'a pas encore d\'accès à la plateforme. Définissez un email et un mot de passe pour l\'activer.</div>' : ''}
     <div class="form-group"><label>Nom</label><input id="m-name" value="${esc(name)}"></div>
-    <div class="form-group"><label>Email</label><input type="email" id="m-email" value="${esc(email)}"></div>
-    <div class="form-group"><label>Nouveau mot de passe (vide = inchangé)</label><input type="password" id="m-pass"></div>
+    <div class="form-group"><label>Email${noEmail ? ' <span style="font-weight:400;font-size:11px;color:var(--muted)">(optionnel)</span>' : ''}</label><input type="email" id="m-email" value="${esc(email)}" placeholder="${noEmail ? 'Définir un email pour activer le compte' : ''}"></div>
+    <div class="form-group"><label>${noEmail ? 'Mot de passe (optionnel)' : 'Nouveau mot de passe (vide = inchangé)'}</label><input type="password" id="m-pass" placeholder="Min. 8 caractères"></div>
   `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
     const b = { name:el('m-name').value, email:el('m-email').value };
     if (el('m-pass').value) b.password = el('m-pass').value;
@@ -607,14 +619,28 @@ async function viewSettings() {
     const s = await get('/settings');
     html('view', `
       <div class="page-title">Paramètres</div>
-      <div class="card" style="max-width:480px">
+      <div class="card" style="max-width:540px">
+        <h2>Général</h2>
         <div class="form-group"><label>Nom de l'application</label><input id="s-name" value="${esc(s.app_name??'Print3D')}"></div>
         <div class="form-group"><label>Taux horaire (€/h)</label><input type="number" step="0.01" id="s-rate" value="${esc(s.hourly_rate??'0.80')}"></div>
         <div class="form-group"><label>Email de contact</label><input type="email" id="s-email" value="${esc(s.contact_email??'')}"></div>
         <div class="form-group"><label><input type="checkbox" id="s-notify" ${s.notify_on_status==='1'?'checked':''}> Notifier le client par email à chaque changement de statut</label></div>
         <button class="btn btn-primary" id="s-save">Enregistrer</button>
       </div>
+      <div class="card" style="max-width:540px">
+        <h2>🖨 Imprimante résine (Elegoo Saturn 4 Ultra)</h2>
+        <div class="form-group">
+          <label>IP de l'imprimante</label>
+          <div style="display:flex;gap:8px">
+            <input id="s-printer-ip" value="${esc(s.printer_ip??'')}" placeholder="192.168.0.124" style="flex:1">
+            <button class="btn btn-ghost btn-sm" id="s-probe-btn">Tester</button>
+          </div>
+        </div>
+        <div id="probe-result"></div>
+        <button class="btn btn-primary" id="s-save-printer">Enregistrer l'IP</button>
+      </div>
     `);
+
     el('s-save').addEventListener('click', async () => {
       await post('/settings', {
         app_name: el('s-name').value,
@@ -624,6 +650,37 @@ async function viewSettings() {
       });
       el('s-save').textContent = 'Enregistré ✓';
       setTimeout(() => { el('s-save').textContent = 'Enregistrer'; }, 1500);
+    });
+
+    el('s-save-printer').addEventListener('click', async () => {
+      await post('/settings', { printer_ip: el('s-printer-ip').value.trim() });
+      el('s-save-printer').textContent = 'Enregistré ✓';
+      setTimeout(() => { el('s-save-printer').textContent = "Enregistrer l'IP"; }, 1500);
+    });
+
+    el('s-probe-btn').addEventListener('click', async () => {
+      const ip = el('s-printer-ip').value.trim();
+      if (ip) await post('/settings', { printer_ip: ip });
+      el('probe-result').innerHTML = '<p style="color:var(--muted);font-size:12px">Test en cours…</p>';
+      try {
+        const r = await get('/monitor/probe');
+        const working = Object.entries(r.candidates).find(([,v]) => v.ok && v.json);
+        if (working) {
+          el('probe-result').innerHTML = `
+            <div class="alert" style="background:#86efac;border:2px solid #000;margin-top:8px;font-size:12px">
+              ✅ Connecté — endpoint : <code>${working[0]}</code><br>
+              <details style="margin-top:6px"><summary>Réponse brute</summary>
+              <pre style="font-size:11px;overflow:auto;max-height:150px">${esc(JSON.stringify(working[1].json, null, 2))}</pre></details>
+            </div>`;
+        } else {
+          el('probe-result').innerHTML = `
+            <div class="alert alert-err" style="margin-top:8px;font-size:12px">
+              ❌ Aucun endpoint Chitu V3 n'a répondu. Vérifie que l'imprimante est allumée et sur le même réseau.
+              <details style="margin-top:6px"><summary>Détails</summary>
+              <pre style="font-size:11px;overflow:auto;max-height:120px">${esc(JSON.stringify(r, null, 2))}</pre></details>
+            </div>`;
+        }
+      } catch(e) { el('probe-result').innerHTML = `<div class="alert alert-err" style="margin-top:8px">${esc(e.message)}</div>`; }
     });
   } catch(e) { html('view', errBox(e)); }
 }
@@ -649,6 +706,82 @@ el('modal-overlay').addEventListener('click', e => { if (e.target === el('modal-
 
 function errBox(e) {
   return `<div class="alert alert-err">Erreur : ${esc(e.message)}</div>`;
+}
+
+// ── Monitor temps réel (Chitu V3) ────────────────────────────
+let _monitorInterval = null;
+
+function stopMonitor() {
+  if (_monitorInterval) { clearInterval(_monitorInterval); _monitorInterval = null; }
+}
+
+function fmtTime(sec) {
+  if (!sec) return '—';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${m}m`;
+}
+
+const CHITU_STATUS = {
+  idle:'Idle', homing:'Homing', printing:'Impression',
+  paused:'En pause', stopping:'Arrêt', complete:'Terminé', error:'Erreur', unknown:'—'
+};
+
+async function startMonitor(jobId) {
+  stopMonitor();
+  const box = el('monitor-box');
+  if (!box) return;
+
+  async function tick() {
+    try {
+      // sync vers DB
+      const d = await post(`/monitor/${jobId}`, {});
+      if (!d.synced) { box.innerHTML = monitorIdleHtml(d.reason); return; }
+      const m = d.data;
+      box.innerHTML = monitorLiveHtml(m);
+    } catch(e) {
+      box.innerHTML = `<div style="color:var(--muted);font-size:12px">⚠️ ${esc(e.message)}</div>`;
+    }
+  }
+
+  await tick();
+  _monitorInterval = setInterval(tick, 5000);
+}
+
+function monitorLiveHtml(m) {
+  const pct = m.progress_pct || 0;
+  const statusColor = m.status === 'printing' ? '#facc15' : m.status === 'error' ? '#fca5a5' : '#e5e5e5';
+  return `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="background:${statusColor};border:2px solid #111;padding:3px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">
+        ${CHITU_STATUS[m.status] ?? m.status}
+      </span>
+      ${m.filename ? `<span style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.filename)}</span>` : ''}
+    </div>
+    <div class="progress-wrap" style="height:20px;margin-bottom:10px">
+      <div class="progress-bar" style="width:${pct}%"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
+      <div style="text-align:center;border:2px solid #111;padding:10px">
+        <div style="font-size:22px;font-weight:700">${pct}%</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Progression</div>
+      </div>
+      <div style="text-align:center;border:2px solid #111;padding:10px">
+        <div style="font-size:22px;font-weight:700">${m.layer_current||'—'}<span style="font-size:12px;color:var(--muted)">/${m.layer_total||'?'}</span></div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Couches</div>
+      </div>
+      <div style="text-align:center;border:2px solid #111;padding:10px">
+        <div style="font-size:22px;font-weight:700">${fmtTime(m.remain_sec)}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Restant</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);text-align:right">
+      Temps écoulé : ${fmtTime(m.elapsed_sec)} · Sync auto toutes les 5s
+    </div>
+  `;
+}
+
+function monitorIdleHtml(reason) {
+  return `<div style="color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">⏸ ${esc(reason||'Imprimante idle')}</div>`;
 }
 
 // ── STL Viewer (Three.js) ─────────────────────────────────────

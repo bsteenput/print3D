@@ -50,5 +50,8 @@ match(true) {
     // ── Dashboard stats ──────────────────────────────────────
     $resource === 'dashboard'                         => require __DIR__ . '/routes/dashboard.php',
 
+    // ── Monitoring imprimante physique ────────────────────────
+    $resource === 'monitor'                           => require __DIR__ . '/routes/monitor.php',
+
     default => json_err('Route introuvable', 404),
 };

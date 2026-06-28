@@ -13,8 +13,8 @@ SET time_zone = '+01:00';
 CREATE TABLE users (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(100)  NOT NULL,
-    email       VARCHAR(180)  NOT NULL UNIQUE,
-    password    VARCHAR(255)  NOT NULL,          -- bcrypt
+    email       VARCHAR(180)  NULL UNIQUE,
+    password    VARCHAR(255)  NULL,              -- bcrypt
     role        ENUM('admin','client') NOT NULL DEFAULT 'client',
     created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login  DATETIME      NULL

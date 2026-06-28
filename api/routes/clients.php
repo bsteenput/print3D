@@ -29,13 +29,19 @@ if ($method === 'GET' && $id !== null) {
 
 // ── PUT /api/clients/{id} ─────────────────────────────────────
 if ($method === 'PUT' && $id !== null) {
-    $b    = body();
-    $name = trim($b['name'] ?? '');
-    $email = trim($b['email'] ?? '');
-    if (!$name || !$email) json_err('Nom et email requis');
+    $b     = body();
+    $name  = trim($b['name'] ?? '');
+    $email = array_key_exists('email', $b) ? (trim($b['email']) ?: null) : false;
+    if (!$name) json_err('Nom requis');
 
-    $fields = ['name = ?', 'email = ?'];
-    $params = [$name, $email];
+    $fields = ['name = ?'];
+    $params = [$name];
+
+    if ($email !== false) {
+        if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) json_err('Email invalide');
+        $fields[] = 'email = ?';
+        $params[]  = $email;
+    }
 
     if (!empty($b['password'])) {
         if (strlen($b['password']) < 8) json_err('Mot de passe trop court');

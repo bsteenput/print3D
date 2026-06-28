@@ -13,7 +13,7 @@ if ($method === 'GET') {
 // ── POST /api/settings  (body: {"key":"value", ...}) ──────────
 if ($method === 'POST') {
     $b = body();
-    $allowed = ['hourly_rate', 'app_name', 'contact_email', 'notify_on_status'];
+    $allowed = ['hourly_rate', 'app_name', 'contact_email', 'notify_on_status', 'printer_ip'];
     $stmt    = db()->prepare(
         'INSERT INTO settings (key_name, value) VALUES (?, ?)
          ON DUPLICATE KEY UPDATE value = VALUES(value)'

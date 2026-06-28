@@ -38,18 +38,19 @@ if ($action === 'me' && $method === 'GET') {
 // ── POST /api/auth/register ───────────────────────────────────
 if ($action === 'register' && $method === 'POST') {
     require_admin();
-    $b    = body();
+    $b     = body();
     $name  = trim($b['name'] ?? '');
-    $email = trim($b['email'] ?? '');
-    $pass  = $b['password'] ?? '';
+    $email = trim($b['email'] ?? '') ?: null;
+    $pass  = ($b['password'] ?? '') !== '' ? $b['password'] : null;
     $role  = in_array($b['role'] ?? '', ['admin', 'client']) ? $b['role'] : 'client';
-    if (!$name || !$email || !$pass) json_err('Nom, email et mot de passe requis');
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) json_err('Email invalide');
-    if (strlen($pass) < 8) json_err('Mot de passe trop court (8 car. min.)');
+    if (!$name) json_err('Nom requis');
+    if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) json_err('Email invalide');
+    if ($pass  !== null && strlen($pass) < 8) json_err('Mot de passe trop court (8 car. min.)');
 
+    $hash = $pass !== null ? password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]) : null;
     try {
         $stmt = db()->prepare('INSERT INTO users (name, email, password, role) VALUES (?,?,?,?)');
-        $stmt->execute([$name, $email, password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]), $role]);
+        $stmt->execute([$name, $email, $hash, $role]);
         json_ok(['id' => (int)db()->lastInsertId(), 'name' => $name, 'email' => $email, 'role' => $role], 201);
     } catch (PDOException $e) {
         if ($e->getCode() === '23000') json_err('Email déjà utilisé', 409);
