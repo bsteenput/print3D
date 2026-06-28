@@ -6,13 +6,6 @@ RewriteEngine On
 # Passe le header Authorization à PHP après les rewrites
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-# Force HTTPS — ignoré si derrière un reverse proxy (Traefik/Coolify) qui gère déjà le SSL
-RewriteCond %{HTTPS} off
-RewriteCond %{HTTP:X-Forwarded-Proto} !https
-RewriteCond %{HTTP_HOST} !^localhost(:\d+)?$
-RewriteCond %{HTTP_HOST} !^127\.0\.0\.1(:\d+)?$
-RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-
 # Protect sensitive dirs
 RewriteRule ^(config|api/routes)/ - [F,L]
 
