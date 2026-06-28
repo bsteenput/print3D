@@ -263,7 +263,7 @@ async function viewJob(id) {
               </li>`).join('')}
             </ul>` : '<div class="empty" style="padding:16px">Aucun fichier</div>'}
             <div style="margin-top:12px">
-              <input type="file" id="stl-input" accept=".stl" multiple style="display:none">
+              <input type="file" id="stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
               <button class="btn btn-ghost btn-sm" onclick="el('stl-input').click()">+ Ajouter STL</button>
               <span id="upload-status" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
             </div>
@@ -879,27 +879,38 @@ window.openStl = (url, name) => {
   scene.add(grid);
 
   const loader = new THREE.STLLoader();
-  loader.load(url, geo => {
-    geo.computeVertexNormals();
-    geo.center();
-    const mat  = new THREE.MeshPhongMaterial({ color: 0x4ecca3, specular: 0x222244, shininess: 60 });
-    const mesh = new THREE.Mesh(geo, mat);
+  const loadGeo = blobUrl => {
+    loader.load(blobUrl, geo => {
+      URL.revokeObjectURL(blobUrl);
+      geo.computeVertexNormals();
+      geo.center();
+      const mat  = new THREE.MeshPhongMaterial({ color: 0x4ecca3, specular: 0x222244, shininess: 60 });
+      const mesh = new THREE.Mesh(geo, mat);
 
-    // Auto-scale to fit
-    const box = new THREE.Box3().setFromObject(mesh);
-    const sz  = box.getSize(new THREE.Vector3());
-    const max = Math.max(sz.x, sz.y, sz.z);
-    const scale = 150 / max;
-    mesh.scale.setScalar(scale);
-    mesh.position.y = (sz.y * scale) / 2;
+      // Auto-scale to fit
+      const box = new THREE.Box3().setFromObject(mesh);
+      const sz  = box.getSize(new THREE.Vector3());
+      const max = Math.max(sz.x, sz.y, sz.z);
+      const scale = 150 / max;
+      mesh.scale.setScalar(scale);
+      mesh.position.y = (sz.y * scale) / 2;
 
-    scene.add(mesh);
-    camera.lookAt(0, (sz.y * scale)/2, 0);
-    controls.target.set(0, (sz.y * scale)/2, 0);
-    controls.update();
-  }, undefined, () => {
-    el('stl-modal-title').textContent = name + ' (erreur de chargement)';
-  });
+      scene.add(mesh);
+      camera.lookAt(0, (sz.y * scale)/2, 0);
+      controls.target.set(0, (sz.y * scale)/2, 0);
+      controls.update();
+    }, undefined, () => {
+      URL.revokeObjectURL(blobUrl);
+      el('stl-modal-title').textContent = name + ' (erreur de chargement)';
+    });
+  };
+
+  const hdrs = {};
+  if (token()) hdrs['Authorization'] = 'Bearer ' + token();
+  fetch(url, { headers: hdrs })
+    .then(r => r.ok ? r.blob() : Promise.reject())
+    .then(blob => loadGeo(URL.createObjectURL(blob)))
+    .catch(() => { el('stl-modal-title').textContent = name + " (accès refusé)"; });
 
   const animate = () => {
     stlAnimId = requestAnimationFrame(animate);

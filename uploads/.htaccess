@@ -1,7 +1,24 @@
-# Bloquer l'exécution de scripts dans uploads/
-Options -ExecCGI
-AddHandler cgi-script .php .php3 .php4 .php5 .phtml .pl .py .jsp .asp .sh
-<FilesMatch "\.(php|php3|php4|php5|phtml|pl|py|jsp|asp|sh)$">
-    Order Deny,Allow
+# Les fichiers sont servis exclusivement via /api/files/{job_id}/{name}
+# Aucun accès HTTP direct autorisé
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
     Deny from all
+</IfModule>
+
+# Defense-in-depth : bloquer l'exécution de tout script même si les règles d'accès étaient contournées
+Options -ExecCGI -Indexes
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<FilesMatch "\.ph(p[2-7]?|tml)|\.phtml|\.pl|\.py|\.jsp|\.asp|\.sh|\.cgi$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
 </FilesMatch>

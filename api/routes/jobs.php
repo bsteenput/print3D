@@ -52,8 +52,8 @@ if ($method === 'GET' && $id !== null && $sub === null) {
 
     $files = $pdo->prepare('SELECT id, filename, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
     $files->execute([$id]);
-    $job['files'] = array_map(function ($f) {
-        $f['url'] = UPLOAD_URL . $f['path'];
+    $job['files'] = array_map(function ($f) use ($id) {
+        $f['url'] = '/api/files/' . $id . '/' . basename($f['path']);
         return $f;
     }, $files->fetchAll());
 

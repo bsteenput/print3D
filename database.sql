@@ -116,6 +116,23 @@ CREATE TABLE job_files (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
+--  Objets individuels à imprimer dans un job
+-- ------------------------------------------------------------
+CREATE TABLE job_items (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    job_id      INT UNSIGNED  NOT NULL,
+    file_id     INT UNSIGNED  NULL,                  -- STL lié (optionnel)
+    name        VARCHAR(200)  NOT NULL,
+    quantity    SMALLINT      NOT NULL DEFAULT 1,
+    status      ENUM('pending','printing','done','failed') NOT NULL DEFAULT 'pending',
+    notes       TEXT          NULL,
+    sort_order  INT UNSIGNED  NOT NULL DEFAULT 0,
+
+    FOREIGN KEY (job_id)  REFERENCES jobs(id)       ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES job_files(id)  ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ------------------------------------------------------------
 --  Historique des changements de statut (timeline client)
 -- ------------------------------------------------------------
 CREATE TABLE job_events (
@@ -142,6 +159,16 @@ INSERT INTO settings (key_name, value) VALUES
     ('app_name',          'Print3D'),
     ('contact_email',     'bertrand@example.com'),
     ('notify_on_status',  '1');           -- envoyer email au client à chaque changement
+
+-- ------------------------------------------------------------
+--  Tentatives de connexion (rate limiting anti brute-force)
+-- ------------------------------------------------------------
+CREATE TABLE login_attempts (
+    id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    ip           VARCHAR(45)  NOT NULL,
+    attempted_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ip_time (ip, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
 --  Données de démo

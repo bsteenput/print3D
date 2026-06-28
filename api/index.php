@@ -16,10 +16,11 @@ $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $uri    = preg_replace('#^/api#', '', $uri);   // strip /api prefix
 $parts  = array_values(array_filter(explode('/', $uri)));
 
-// Route : /api/{resource}/{id?}/{sub?}
+// Route : /api/{resource}/{id?}/{sub?}/{sub_id?}
 $resource = $parts[0] ?? '';
 $id       = isset($parts[1]) ? (int)$parts[1] : null;
 $sub      = $parts[2] ?? null;
+$sub_id   = isset($parts[3]) ? (int)$parts[3] : null;
 
 match(true) {
 
@@ -34,6 +35,7 @@ match(true) {
                                                       => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'status'         => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'files'          => require __DIR__ . '/routes/jobs.php',
+    $resource === 'jobs' && $sub === 'items'          => require __DIR__ . '/routes/jobs.php',
 
     // ── Clients ──────────────────────────────────────────────
     $resource === 'clients'                           => require __DIR__ . '/routes/clients.php',
@@ -49,6 +51,9 @@ match(true) {
 
     // ── Dashboard stats ──────────────────────────────────────
     $resource === 'dashboard'                         => require __DIR__ . '/routes/dashboard.php',
+
+    // ── Fichiers (proxy authentifié) ─────────────────────────
+    $resource === 'files'                             => require __DIR__ . '/routes/files.php',
 
     // ── Monitoring imprimante physique ────────────────────────
     $resource === 'monitor'                           => require __DIR__ . '/routes/monitor.php',

@@ -9,14 +9,48 @@ if ($action === 'login' && $method === 'POST') {
     $password = $b['password'] ?? '';
     if (!$email || !$password) json_err('Email et mot de passe requis');
 
-    $stmt = db()->prepare('SELECT * FROM users WHERE email = ?');
+    // IP réelle même derrière Traefik/proxy
+    $ip = trim(explode(',', $_SERVER['HTTP_X_REAL_IP']
+           ?? $_SERVER['HTTP_X_FORWARDED_FOR']
+           ?? $_SERVER['REMOTE_ADDR']
+           ?? '0.0.0.0')[0]);
+
+    $pdo = db();
+
+    // Rate limiting : max 10 tentatives par IP sur 15 minutes
+    try {
+        $chk = $pdo->prepare(
+            'SELECT COUNT(*) FROM login_attempts
+             WHERE ip = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)'
+        );
+        $chk->execute([$ip]);
+        if ((int)$chk->fetchColumn() >= 10) {
+            json_err('Trop de tentatives de connexion. Réessayez dans 15 minutes.', 429);
+        }
+    } catch (PDOException $e) { /* table absente — continue sans rate limit */ }
+
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
+
     if (!$user || !password_verify($password, $user['password'])) {
+        // Enregistrer la tentative échouée
+        try {
+            $pdo->prepare('INSERT INTO login_attempts (ip) VALUES (?)')->execute([$ip]);
+            // Nettoyage périodique des vieilles tentatives (~5% des requêtes)
+            if (rand(1, 20) === 1) {
+                $pdo->exec("DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 2 HOUR)");
+            }
+        } catch (PDOException $e) { /* table absente */ }
         json_err('Identifiants incorrects', 401);
     }
 
-    db()->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
+    // Succès : effacer les tentatives de cette IP
+    try {
+        $pdo->prepare('DELETE FROM login_attempts WHERE ip = ?')->execute([$ip]);
+    } catch (PDOException $e) { /* table absente */ }
+
+    $pdo->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
 
     $token = jwt_encode([
         'sub'  => $user['id'],

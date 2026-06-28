@@ -89,7 +89,7 @@ function next_job_ref(): string {
     return 'JOB-' . str_pad($n, 4, '0', STR_PAD_LEFT);
 }
 
-// ── Upload STL ────────────────────────────────────────────────
+// ── Upload fichiers 3D ────────────────────────────────────────
 function handle_stl_upload(int $job_id): array {
     $saved = [];
     $files = $_FILES['stl'] ?? null;
@@ -100,29 +100,64 @@ function handle_stl_upload(int $job_id): array {
         foreach ($files as $k => $v) $files[$k] = [$v];
     }
 
+    // Extensions autorisées pour l'impression 3D
+    $allowed_exts = ['stl', '3mf', 'obj'];
+
+    // Types MIME dangereux à bloquer explicitement
+    $blocked_mimes = [
+        'text/html', 'application/xhtml+xml',
+        'application/x-php', 'application/x-httpd-php',
+        'application/javascript', 'text/javascript',
+        'application/x-executable', 'application/x-sharedlib',
+        'application/x-sh', 'application/x-csh',
+    ];
+
+    // Marqueurs de code à rejeter dans les premiers octets du fichier
+    $code_markers = ['<?php', '<?=', '<script', '<!DOCTYPE', '<html', '<%', '#!'];
+
     $dir = UPLOAD_DIR . "job_{$job_id}/";
     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
     foreach ($files['name'] as $i => $name) {
         if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
-        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (!in_array($ext, ['stl'])) continue;
         if ($files['size'][$i] > MAX_FILE_SIZE) continue;
+
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowed_exts)) continue;
+
+        $tmp = $files['tmp_name'][$i];
+
+        // 1. Vérification MIME type (si finfo disponible)
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime  = finfo_file($finfo, $tmp);
+            finfo_close($finfo);
+            if (in_array($mime, $blocked_mimes)) continue;
+        }
+
+        // 2. Vérification du contenu — rejeter si marqueurs de code présents
+        $head = (string) file_get_contents($tmp, false, null, 0, 512);
+        $safe_content = true;
+        foreach ($code_markers as $marker) {
+            if (stripos($head, $marker) !== false) { $safe_content = false; break; }
+        }
+        if (!$safe_content) continue;
 
         $safe     = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $name);
         $filename = uniqid() . '_' . $safe;
         $dest     = $dir . $filename;
 
-        if (move_uploaded_file($files['tmp_name'][$i], $dest)) {
-            $stmt = db()->prepare(
+        if (move_uploaded_file($tmp, $dest)) {
+            $pdo  = db();
+            $stmt = $pdo->prepare(
                 'INSERT INTO job_files (job_id, filename, path, size_bytes) VALUES (?,?,?,?)'
             );
             $rel = "job_{$job_id}/{$filename}";
             $stmt->execute([$job_id, $name, $rel, $files['size'][$i]]);
             $saved[] = [
-                'id'       => db()->lastInsertId(),
+                'id'       => (int)$pdo->lastInsertId(),
                 'filename' => $name,
-                'url'      => UPLOAD_URL . $rel,
+                'url'      => '/api/files/' . $job_id . '/' . $filename,
             ];
         }
     }
