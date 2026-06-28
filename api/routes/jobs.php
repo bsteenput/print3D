@@ -57,6 +57,17 @@ if ($method === 'GET' && $id !== null && $sub === null) {
         return $f;
     }, $files->fetchAll());
 
+    $items_stmt = $pdo->prepare(
+        'SELECT i.id, i.file_id, i.name, i.quantity, i.status, i.notes, i.sort_order,
+                f.filename
+         FROM job_items i
+         LEFT JOIN job_files f ON f.id = i.file_id
+         WHERE i.job_id = ?
+         ORDER BY i.sort_order, i.id'
+    );
+    $items_stmt->execute([$id]);
+    $job['items'] = $items_stmt->fetchAll();
+
     $events = $pdo->prepare('SELECT status, message, created_at FROM job_events WHERE job_id = ? ORDER BY created_at');
     $events->execute([$id]);
     $job['events'] = $events->fetchAll();
@@ -213,6 +224,47 @@ if ($method === 'DELETE' && $id !== null && $sub === 'files') {
 if ($method === 'DELETE' && $id !== null && $sub === null) {
     if (!$is_admin) json_err('Accès refusé', 403);
     $pdo->prepare('DELETE FROM jobs WHERE id = ?')->execute([$id]);
+    json_ok(['deleted' => true]);
+}
+
+// ── POST /api/jobs/{id}/items ─────────────────────────────────
+if ($method === 'POST' && $id !== null && $sub === 'items') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $b = body();
+    $name = trim($b['name'] ?? '');
+    if (!$name) json_err('Nom requis');
+    $file_id = !empty($b['file_id']) ? (int)$b['file_id'] : null;
+    $pdo->prepare(
+        'INSERT INTO job_items (job_id, file_id, name, quantity, notes, sort_order)
+         VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order),0)+1 FROM job_items ji2 WHERE ji2.job_id = ?))'
+    )->execute([$id, $file_id, $name, (int)($b['quantity'] ?? 1), $b['notes'] ?? null, $id]);
+    json_ok(['id' => (int)$pdo->lastInsertId()], 201);
+}
+
+// ── PUT /api/jobs/{id}/items/{sub_id} ─────────────────────────
+if ($method === 'PUT' && $id !== null && $sub === 'items' && $sub_id !== null) {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $b = body();
+    $name = trim($b['name'] ?? '');
+    if (!$name) json_err('Nom requis');
+    $ITEM_STATUSES = ['pending', 'printing', 'done', 'failed'];
+    $status  = in_array($b['status'] ?? '', $ITEM_STATUSES) ? $b['status'] : 'pending';
+    $file_id = array_key_exists('file_id', $b) ? (!empty($b['file_id']) ? (int)$b['file_id'] : null) : false;
+
+    $fields = ['name = ?', 'quantity = ?', 'status = ?', 'notes = ?'];
+    $params = [$name, (int)($b['quantity'] ?? 1), $status, $b['notes'] ?? null];
+    if ($file_id !== false) { $fields[] = 'file_id = ?'; $params[] = $file_id; }
+    $params[] = $sub_id;
+
+    $pdo->prepare('UPDATE job_items SET ' . implode(', ', $fields) . ' WHERE id = ? AND job_id = ' . $id)
+        ->execute($params);
+    json_ok(['updated' => true]);
+}
+
+// ── DELETE /api/jobs/{id}/items/{sub_id} ──────────────────────
+if ($method === 'DELETE' && $id !== null && $sub === 'items' && $sub_id !== null) {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $pdo->prepare('DELETE FROM job_items WHERE id = ? AND job_id = ?')->execute([$sub_id, $id]);
     json_ok(['deleted' => true]);
 }
 
