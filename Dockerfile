@@ -23,7 +23,11 @@ RUN rm -f  /var/www/html/config/config.local.php \
  && mkdir -p /var/www/html/uploads \
  && chown www-data:www-data /var/www/html/uploads
 
+RUN chmod +x /var/www/html/docker/entrypoint.sh
+
 EXPOSE 80
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=5 \
     CMD curl -s http://localhost/ -o /dev/null || exit 1
+
+CMD ["/var/www/html/docker/entrypoint.sh"]
