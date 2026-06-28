@@ -173,7 +173,7 @@ async function viewJobs() {
     html('view', `
       <div class="page-title">
         Jobs d'impression
-        ${isAdmin ? `<button class="btn btn-primary" id="new-job-btn">+ Nouveau job</button>` : ''}
+        <button class="btn btn-primary" id="new-job-btn">+ Nouveau job</button>
       </div>
       <div class="table-wrap"><table>
         <tr>
@@ -192,7 +192,7 @@ async function viewJobs() {
         </tr>`).join('') : '<tr><td colspan="7" class="empty">Aucun job</td></tr>'}
       </table></div>
     `);
-    if (isAdmin) el('new-job-btn')?.addEventListener('click', () => modalNewJob());
+    el('new-job-btn')?.addEventListener('click', () => isAdmin ? modalNewJob() : modalNewJobClient());
   } catch(e) { html('view', errBox(e)); }
 }
 
@@ -366,6 +366,59 @@ async function modalNewJob() {
     const r = await post('/jobs', b);
     closeModal(); location.hash = '#jobs/' + r.id;
   }}]);
+}
+
+// ── MODAL: new job (client) ───────────────────────────────────
+async function modalNewJobClient() {
+  const filaments = await get('/filaments');
+  const active = filaments.filter(f => f.active);
+  const byMaterial = active.reduce((acc, f) => {
+    (acc[f.material] = acc[f.material] || []).push(f);
+    return acc;
+  }, {});
+  const filamentOptions = Object.entries(byMaterial).map(([mat, list]) =>
+    `<optgroup label="${esc(mat)}">${list.map(f => `<option value="${f.id}">${esc(f.color)}</option>`).join('')}</optgroup>`
+  ).join('');
+  openModal('Nouvelle demande d\'impression', `
+    <div class="form-group">
+      <label>Titre <span style="color:var(--danger)">*</span></label>
+      <input id="m-title" placeholder="Ex: Support de téléphone">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="m-desc" rows="3" placeholder="Informations complémentaires, dimensions, contraintes…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Quantité</label>
+        <input type="number" id="m-qty" value="1" min="1" max="10">
+      </div>
+      <div class="form-group">
+        <label>Filament souhaité</label>
+        <select id="m-filament">
+          <option value="">— Sans préférence —</option>
+          ${filamentOptions}
+        </select>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px">Vous pourrez uploader vos fichiers STL après création.</p>
+  `, [
+    { label: 'Annuler', cls: 'btn-ghost', click: closeModal },
+    { label: 'Créer la demande', cls: 'btn-primary', click: async () => {
+      const title = el('m-title').value.trim();
+      if (!title) { alert('Le titre est obligatoire.'); return; }
+      const qty = +el('m-qty').value;
+      if (qty < 1 || qty > 10) { alert('La quantité doit être entre 1 et 10.'); return; }
+      const r = await post('/jobs', {
+        title,
+        description: el('m-desc').value,
+        quantity: qty,
+        filament_id: +el('m-filament').value || null,
+      });
+      closeModal();
+      location.hash = '#jobs/' + r.id;
+    }}
+  ]);
 }
 
 // ── MODAL: edit job ───────────────────────────────────────────
