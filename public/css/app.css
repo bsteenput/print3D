@@ -19,6 +19,59 @@
   --font:     'Space Grotesk', system-ui, sans-serif;
 }
 
+/* ── Dark theme ──────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:        #111111;
+  --surface:   #1c1c1c;
+  --surface2:  #272727;
+  --border:    #c8c8bc;
+  --shadow:    4px 4px 0 #000000;
+  --shadow-sm: 2px 2px 0 #000000;
+  --text:      #e8e8dc;
+  --muted:     #909088;
+}
+
+/* Sidebar : reste sombre dans les deux thèmes */
+[data-theme="dark"] #sidebar { background: #000; }
+[data-theme="dark"] #sidebar nav a.active { color: #111; }
+
+/* Table header */
+[data-theme="dark"] th { background: #000; color: var(--text); }
+
+/* Liens sur ligne survolée (jaune) */
+[data-theme="dark"] tr:hover td a { color: #111; }
+
+/* Champs focus */
+[data-theme="dark"] input:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus { background: #2a2600; }
+
+/* Grille login */
+[data-theme="dark"] #login-screen {
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, #1e1e18 39px, #1e1e18 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, #1e1e18 39px, #1e1e18 40px);
+}
+
+/* Badges : adapter les pastels au fond sombre */
+[data-theme="dark"] .badge-draft     { background: #333; color: #ccc; }
+[data-theme="dark"] .badge-queued    { background: #1a3252; color: #93c5fd; }
+[data-theme="dark"] .badge-printing  { color: #111; }
+[data-theme="dark"] .badge-done      { background: #14391f; color: #86efac; }
+[data-theme="dark"] .badge-picked_up { background: #0c2d3a; color: #67e8f9; }
+[data-theme="dark"] .badge-cancelled { background: #3a1212; color: #fca5a5; }
+
+/* Alert */
+[data-theme="dark"] .alert-err { background: #3a1212; color: #fca5a5; }
+
+/* Empty state border */
+[data-theme="dark"] .empty { border-color: #444; }
+
+/* Transitions douces au changement de thème */
+body, .card, .modal, input, select, textarea, th, td, .badge, .btn, .login-box {
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -87,6 +140,27 @@ a:hover { background: var(--accent); text-decoration: none; }
   text-decoration: none;
 }
 #sidebar nav a .icon { font-size: 15px; width: 18px; text-align: center; }
+
+.theme-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  color: #aaaaaa;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-left: 4px solid transparent;
+  width: 100%;
+  text-align: left;
+}
+.theme-btn:hover { background: #222; color: #fff; }
+.theme-btn .icon { font-size: 15px; width: 18px; text-align: center; }
 
 #sidebar .sidebar-footer {
   padding: 14px 18px;
@@ -453,6 +527,8 @@ textarea { min-height: 80px; resize: vertical; }
   #sidebar .logo { font-size: 20px; text-align: center; padding: 16px 8px; }
   #sidebar nav a { justify-content: center; padding: 14px 8px; border-left: none; border-bottom: 2px solid transparent; }
   #sidebar nav a.active { border-left: none; border-bottom-color: var(--accent); }
+  .theme-btn { justify-content: center; padding: 14px 8px; border-left: none; }
+  .theme-btn span:not(.icon) { display: none; }
   #main { margin-left: 56px; padding: 20px 16px; }
   .form-row, .form-row-3 { grid-template-columns: 1fr; }
   .detail-grid { grid-template-columns: 1fr; }
@@ -485,7 +561,7 @@ textarea { min-height: 80px; resize: vertical; }
     scrollbar-width: none;
   }
   #sidebar nav::-webkit-scrollbar { display: none; }
-  #sidebar nav a {
+  #sidebar nav a, .theme-btn {
     flex: 1;
     flex-direction: column;
     justify-content: center;
@@ -497,7 +573,8 @@ textarea { min-height: 80px; resize: vertical; }
     border-top: 3px solid transparent;
     min-width: 52px;
   }
-  #sidebar nav a span:not(.icon) { display: block !important; font-size: 9px; letter-spacing: 0; }
+  #sidebar nav a span:not(.icon),
+  .theme-btn span:not(.icon) { display: block !important; font-size: 9px; letter-spacing: 0; }
   #sidebar nav a.active { border-top-color: var(--accent); border-bottom: none; background: #222; }
 
   #sidebar .sidebar-footer {

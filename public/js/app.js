@@ -46,6 +46,13 @@ const ITEM_STATUS_LABELS = { pending:'En attente', printing:'En cours', done:'Te
 const ITEM_STATUS_BADGE  = { pending:'queued', printing:'printing', done:'done', failed:'cancelled' };
 const itemBadge = s => `<span class="badge badge-${ITEM_STATUS_BADGE[s]??'draft'}">${ITEM_STATUS_LABELS[s]??s}</span>`;
 
+// ── Thème ─────────────────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = el('theme-toggle');
+  if (btn) btn.querySelector('.icon').textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
 // ── Login ─────────────────────────────────────────────────────
 async function initLogin() {
   el('login-screen').style.display = 'flex';
@@ -916,7 +923,7 @@ function monitorLiveHtml(m) {
   const statusColor = m.status === 'printing' ? '#facc15' : m.status === 'error' ? '#fca5a5' : '#e5e5e5';
   return `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <span style="background:${statusColor};border:2px solid #111;padding:3px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">
+      <span style="background:${statusColor};border:var(--bw) solid var(--border);padding:3px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">
         ${CHITU_STATUS[m.status] ?? m.status}
       </span>
       ${m.filename ? `<span style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.filename)}</span>` : ''}
@@ -925,15 +932,15 @@ function monitorLiveHtml(m) {
       <div class="progress-bar" style="width:${pct}%"></div>
     </div>
     <div class="monitor-stats">
-      <div style="text-align:center;border:2px solid #111;padding:10px">
+      <div style="text-align:center;border:var(--bw) solid var(--border);padding:10px">
         <div style="font-size:22px;font-weight:700">${pct}%</div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Progression</div>
       </div>
-      <div style="text-align:center;border:2px solid #111;padding:10px">
+      <div style="text-align:center;border:var(--bw) solid var(--border);padding:10px">
         <div style="font-size:22px;font-weight:700">${m.layer_current||'—'}<span style="font-size:12px;color:var(--muted)">/${m.layer_total||'?'}</span></div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Couches</div>
       </div>
-      <div style="text-align:center;border:2px solid #111;padding:10px">
+      <div style="text-align:center;border:var(--bw) solid var(--border);padding:10px">
         <div style="font-size:22px;font-weight:700">${fmtTime(m.remain_sec)}</div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Restant</div>
       </div>
@@ -1044,6 +1051,15 @@ el('stl-close').addEventListener('click', () => {
 el('stl-modal').addEventListener('click', e => { if (e.target === el('stl-modal')) el('stl-close').click(); });
 
 // ── Boot ──────────────────────────────────────────────────────
+
+// Thème : appliquer avant le premier rendu pour éviter le flash
+applyTheme(localStorage.getItem('p3d_theme') || 'light');
+el('theme-toggle').addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('p3d_theme', next);
+});
+
 (async () => {
   if (token()) {
     try {
