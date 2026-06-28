@@ -18,6 +18,9 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - coolify
+      - internal
 
   db:
     image: mysql:8.0
@@ -35,6 +38,14 @@ services:
       timeout: 5s
       retries: 12
     restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  coolify:
+    external: true
+  internal:
+    driver: bridge
 
 volumes:
   db_data:
