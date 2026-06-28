@@ -221,7 +221,7 @@ async function viewJob(id) {
           <button class="btn btn-danger btn-sm" id="del-job-btn">Supprimer</button>` : ''}
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="detail-grid">
         <div>
           <div class="card">
             <h2>Informations</h2>
@@ -813,7 +813,7 @@ function monitorLiveHtml(m) {
     <div class="progress-wrap" style="height:20px;margin-bottom:10px">
       <div class="progress-bar" style="width:${pct}%"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
+    <div class="monitor-stats">
       <div style="text-align:center;border:2px solid #111;padding:10px">
         <div style="font-size:22px;font-weight:700">${pct}%</div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Progression</div>
