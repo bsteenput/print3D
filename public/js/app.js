@@ -42,6 +42,10 @@ const STATUS_LABELS = {
 const badge = s => `<span class="badge badge-${s}">${STATUS_LABELS[s] ?? s}</span>`;
 const colorDot = hex => hex ? `<span class="color-dot" style="background:${esc(hex)}"></span>` : '';
 
+const ITEM_STATUS_LABELS = { pending:'En attente', printing:'En cours', done:'Terminé', failed:'Échoué' };
+const ITEM_STATUS_BADGE  = { pending:'queued', printing:'printing', done:'done', failed:'cancelled' };
+const itemBadge = s => `<span class="badge badge-${ITEM_STATUS_BADGE[s]??'draft'}">${ITEM_STATUS_LABELS[s]??s}</span>`;
+
 // ── Login ─────────────────────────────────────────────────────
 async function initLogin() {
   el('login-screen').style.display = 'flex';
@@ -283,7 +287,38 @@ async function viewJob(id) {
           </div>
         </div>
       </div>
+
+      <div class="card" style="margin-top:16px">
+        <h2 style="display:flex;justify-content:space-between;align-items:center">
+          Objets à imprimer
+          ${isAdmin ? `<button class="btn btn-sm btn-ghost" id="add-item-btn">+ Ajouter</button>` : ''}
+        </h2>
+        ${j.items.length ? `
+        <div class="table-wrap"><table>
+          <tr><th>Nom</th><th>Fichier STL</th><th style="text-align:center">Qté</th><th>Notes</th><th>Statut</th>${isAdmin?'<th></th>':''}</tr>
+          ${j.items.map(it => `<tr id="item-row-${it.id}">
+            <td>${esc(it.name)}</td>
+            <td style="color:var(--muted)">${it.filename ? esc(it.filename) : '—'}</td>
+            <td style="text-align:center">${it.quantity}</td>
+            <td style="color:var(--muted);font-size:12px">${it.notes ? esc(it.notes) : ''}</td>
+            <td>${isAdmin
+              ? `<select onchange="changeItemStatus(${j.id},${it.id},this.value)" style="font-size:12px;padding:2px 4px">
+                  ${Object.keys(ITEM_STATUS_LABELS).map(s=>`<option value="${s}"${s===it.status?' selected':''}>${ITEM_STATUS_LABELS[s]}</option>`).join('')}
+                 </select>`
+              : itemBadge(it.status)}</td>
+            ${isAdmin ? `<td style="white-space:nowrap">
+              <button class="btn btn-sm btn-ghost" onclick="modalEditItem(${j.id},${it.id})">✏</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteItem(${j.id},${it.id})">✕</button>
+            </td>` : ''}
+          </tr>`).join('')}
+        </table></div>` : `<div class="empty" style="padding:16px">Aucun objet — ${isAdmin ? 'ajoutez les modèles à imprimer' : 'aucun objet renseigné pour ce job'}</div>`}
+      </div>
     `);
+
+    // index des items pour les modals
+    window._jobItems = {};
+    j.items.forEach(it => { window._jobItems[it.id] = it; });
+    window._jobFiles = j.files;
 
     // STL upload
     el('stl-input')?.addEventListener('change', async () => {
@@ -315,6 +350,7 @@ async function viewJob(id) {
         await del('/jobs/' + id);
         location.hash = '#jobs';
       });
+      el('add-item-btn')?.addEventListener('click', () => modalAddItem(id));
     }
   } catch(e) { html('view', errBox(e)); }
 }
@@ -323,6 +359,81 @@ window.deleteFile = async (jobId, fileId) => {
   if (!confirm('Supprimer ce fichier ?')) return;
   await del(`/jobs/${jobId}/files?file_id=${fileId}`);
   el('fi-' + fileId)?.remove();
+};
+
+function itemFileOptions(selectedId) {
+  const files = window._jobFiles ?? [];
+  const opts = files.map(f => `<option value="${f.id}"${f.id===selectedId?' selected':''}>${esc(f.filename)}</option>`).join('');
+  return `<option value="">— Aucun fichier —</option>${opts}`;
+}
+
+function modalAddItem(jobId) {
+  openModal('Ajouter un objet', `
+    <div class="form-group"><label>Nom de l'objet</label><input id="m-iname" placeholder="Ex: Vase nervuré"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Quantité</label><input type="number" id="m-iqty" value="1" min="1"></div>
+      <div class="form-group"><label>Fichier STL</label>
+        <select id="m-ifile">${itemFileOptions(null)}</select>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes <span style="font-weight:400;font-size:11px;color:var(--muted)">(paramètres, orientation…)</span></label>
+      <textarea id="m-inotes" rows="2" placeholder="Ex: 0.1mm, 20% infill, orienté à plat"></textarea>
+    </div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Ajouter',cls:'btn-primary',click:async()=>{
+    const name = el('m-iname').value.trim();
+    if (!name) { alert('Nom requis'); return; }
+    await post(`/jobs/${jobId}/items`, {
+      name, quantity: +el('m-iqty').value,
+      file_id: +el('m-ifile').value || null,
+      notes: el('m-inotes').value || null,
+    });
+    closeModal(); viewJob(jobId);
+  }}]);
+}
+
+window.modalEditItem = (jobId, itemId) => {
+  const it = window._jobItems[itemId];
+  if (!it) return;
+  openModal('Modifier l\'objet', `
+    <div class="form-group"><label>Nom de l'objet</label><input id="m-iname" value="${esc(it.name)}"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Quantité</label><input type="number" id="m-iqty" value="${it.quantity}" min="1"></div>
+      <div class="form-group"><label>Fichier STL</label>
+        <select id="m-ifile">${itemFileOptions(it.file_id)}</select>
+      </div>
+    </div>
+    <div class="form-group"><label>Statut</label>
+      <select id="m-istatus">
+        ${Object.keys(ITEM_STATUS_LABELS).map(s=>`<option value="${s}"${s===it.status?' selected':''}>${ITEM_STATUS_LABELS[s]}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Notes</label>
+      <textarea id="m-inotes" rows="2">${esc(it.notes??'')}</textarea>
+    </div>
+  `, [{label:'Annuler',cls:'btn-ghost',click:closeModal},{label:'Enregistrer',cls:'btn-primary',click:async()=>{
+    const name = el('m-iname').value.trim();
+    if (!name) { alert('Nom requis'); return; }
+    await put(`/jobs/${jobId}/items/${itemId}`, {
+      name, quantity: +el('m-iqty').value,
+      status: el('m-istatus').value,
+      file_id: +el('m-ifile').value || null,
+      notes: el('m-inotes').value || null,
+    });
+    closeModal(); viewJob(jobId);
+  }}]);
+};
+
+window.deleteItem = async (jobId, itemId) => {
+  if (!confirm('Supprimer cet objet ?')) return;
+  await del(`/jobs/${jobId}/items/${itemId}`);
+  el('item-row-' + itemId)?.remove();
+};
+
+window.changeItemStatus = async (jobId, itemId, status) => {
+  const it = window._jobItems[itemId];
+  if (!it) return;
+  await put(`/jobs/${jobId}/items/${itemId}`, { ...it, status, file_id: it.file_id || null });
+  window._jobItems[itemId] = { ...it, status };
 };
 
 function formatBytes(b) {
@@ -879,9 +990,14 @@ window.openStl = (url, name) => {
   scene.add(grid);
 
   const loader = new THREE.STLLoader();
-  const loadGeo = blobUrl => {
-    loader.load(blobUrl, geo => {
-      URL.revokeObjectURL(blobUrl);
+
+  // Chargement via fetch + parse direct (évite les problèmes de type MIME sur les blob URLs)
+  const hdrs = {};
+  if (token()) hdrs['Authorization'] = 'Bearer ' + token();
+  fetch(url, { headers: hdrs })
+    .then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(buf => {
+      const geo = loader.parse(buf);
       geo.computeVertexNormals();
       geo.center();
       const mat  = new THREE.MeshPhongMaterial({ color: 0x4ecca3, specular: 0x222244, shininess: 60 });
@@ -899,18 +1015,8 @@ window.openStl = (url, name) => {
       camera.lookAt(0, (sz.y * scale)/2, 0);
       controls.target.set(0, (sz.y * scale)/2, 0);
       controls.update();
-    }, undefined, () => {
-      URL.revokeObjectURL(blobUrl);
-      el('stl-modal-title').textContent = name + ' (erreur de chargement)';
-    });
-  };
-
-  const hdrs = {};
-  if (token()) hdrs['Authorization'] = 'Bearer ' + token();
-  fetch(url, { headers: hdrs })
-    .then(r => r.ok ? r.blob() : Promise.reject())
-    .then(blob => loadGeo(URL.createObjectURL(blob)))
-    .catch(() => { el('stl-modal-title').textContent = name + " (accès refusé)"; });
+    })
+    .catch(e => { el('stl-modal-title').textContent = name + ' (' + (e.message || 'erreur') + ')'; });
 
   const animate = () => {
     stlAnimId = requestAnimationFrame(animate);
