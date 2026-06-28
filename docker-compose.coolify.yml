@@ -18,6 +18,8 @@ services:
       APP_ENV:         production
       MAIL_FROM:       ${MAIL_FROM:-noreply@example.com}
       MAIL_FROM_NAME:  ${MAIL_FROM_NAME:-Print3D}
+    volumes:
+      - uploads_data:/var/www/html/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -42,3 +44,4 @@ services:
 
 volumes:
   db_data:
+  uploads_data:
