@@ -26,4 +26,4 @@ RUN rm -f  /var/www/html/config/config.local.php \
 EXPOSE 80
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=5 \
-    CMD curl -sf http://localhost/ > /dev/null || exit 1
+    CMD curl -s http://localhost/ -o /dev/null || exit 1
