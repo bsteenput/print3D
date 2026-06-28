@@ -5,12 +5,16 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
+      # Déclare le domaine ET génère les labels Traefik routant vers le port 80
+      # du conteneur php (c'est ça qui manquait -> d'où le 404 de Traefik).
+      # Le domaine se configure dans l'UI Coolify (service php > Domains).
+      SERVICE_FQDN_APP_80: "/"
       DB_HOST:         db
       DB_NAME:         ${DB_NAME:-print3d}
       DB_USER:         ${DB_USER:-print3d_user}
       DB_PASS:         ${DB_PASS}
       JWT_SECRET:      ${JWT_SECRET}
-      APP_URL:         ${SERVICE_FQDN_APP}
+      APP_URL:         ${SERVICE_URL_APP}
       APP_ENV:         production
       MAIL_FROM:       ${MAIL_FROM:-noreply@example.com}
       MAIL_FROM_NAME:  ${MAIL_FROM_NAME:-Print3D}
