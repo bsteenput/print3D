@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
 
 # PHP production
-RUN echo "display_errors = Off\nerror_reporting = E_ALL & ~E_DEPRECATED & ~E_NOTICE" \
+RUN printf "display_errors = Off\nerror_reporting = E_ALL & ~E_DEPRECATED & ~E_NOTICE\nupload_max_filesize = 50M\npost_max_size = 55M\nmemory_limit = 128M\n" \
     > /usr/local/etc/php/conf.d/prod.ini
 
 # Code applicatif
