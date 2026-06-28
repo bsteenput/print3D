@@ -19,7 +19,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     ports:
-      -"80"
+      - "80"
     networks:
       - coolify
       - internal
