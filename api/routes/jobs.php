@@ -312,6 +312,15 @@ if ($method === 'DELETE' && $id !== null && $sub === 'items' && $sub_id !== null
     json_ok(['deleted' => true]);
 }
 
+// ── PATCH /api/jobs/{id}/gallery ─────────────────────────────
+if ($method === 'PATCH' && $id !== null && $sub === 'gallery') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $b          = body();
+    $in_gallery = (int)(!empty($b['in_gallery']));
+    $pdo->prepare('UPDATE jobs SET in_gallery = ? WHERE id = ?')->execute([$in_gallery, $id]);
+    json_ok(['in_gallery' => $in_gallery]);
+}
+
 // ── PATCH /api/jobs/{id}/payment ─────────────────────────────
 if ($method === 'PATCH' && $id !== null && $sub === 'payment') {
     if (!$is_admin) json_err('Accès refusé', 403);

@@ -109,6 +109,7 @@ function route() {
     filaments: viewFilaments,
     settings:  viewSettings,
     stats:     viewStats,
+    gallery:   viewGallery,
   };
   (views[page] || (() => html('view', '<div class="empty">Page introuvable</div>')))();
 }
@@ -266,6 +267,9 @@ async function viewJob(id) {
                 ? `<span style="font-size:12px;color:var(--muted)">Lien de suivi :</span>
                    <button class="btn btn-sm btn-ghost" onclick="copyTrackingLink('${esc(j.tracking_token)}')">📋 Copier le lien</button>`
                 : `<button class="btn btn-sm btn-ghost" id="gen-token-btn">🔗 Générer lien de suivi</button>`}
+              <button id="gallery-toggle-btn" class="btn btn-sm ${j.in_gallery ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px">
+                🖼 ${j.in_gallery ? 'Dans la galerie' : 'Ajouter à la galerie'}
+              </button>
             </div>` : ''}
           </div>
           ${j.status === 'printing' ? `
@@ -393,6 +397,12 @@ async function viewJob(id) {
         location.hash = '#jobs';
       });
       el('add-item-btn')?.addEventListener('click', () => modalAddItem(id));
+
+      // Toggle galerie
+      el('gallery-toggle-btn')?.addEventListener('click', async () => {
+        await patch(`/jobs/${id}/gallery`, { in_gallery: j.in_gallery ? 0 : 1 });
+        viewJob(id);
+      });
 
       // Toggle paiement
       el('pay-toggle-btn')?.addEventListener('click', async () => {
@@ -1023,6 +1033,43 @@ async function viewSettings() {
         }
       } catch(e) { el('probe-result').innerHTML = `<div class="alert alert-err" style="margin-top:8px">${esc(e.message)}</div>`; }
     });
+  } catch(e) { html('view', errBox(e)); }
+}
+
+// ── GALERIE ───────────────────────────────────────────────────
+async function viewGallery() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const jobs = await get('/gallery');
+    html('view', `
+      <div class="page-title">Galerie</div>
+      ${!jobs.length ? '<div class="empty">Aucune réalisation dans la galerie pour l\'instant.</div>' : `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+        ${jobs.map(j => `
+        <div class="card" style="padding:0;overflow:hidden">
+          ${j.photos && j.photos.length
+            ? `<img src="${esc(j.photos[0].url)}" alt="${esc(j.title)}" loading="lazy"
+                   style="width:100%;aspect-ratio:16/9;object-fit:cover;border-bottom:2px solid #000;cursor:pointer"
+                   onclick="openPhotoViewer('${esc(j.photos[0].url)}','${esc(j.title)}')">`
+            : `<div style="aspect-ratio:16/9;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:32px;border-bottom:2px solid #000">📷</div>`}
+          <div style="padding:12px">
+            <div style="font-weight:700;margin-bottom:4px">${esc(j.title)}</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:4px">
+              ${j.filament_material ? colorDot(j.color_hex)+esc(j.filament_material)+' '+esc(j.filament_color) : ''}
+              ${j.print_type === 'resin' && j.ml_used ? ' · '+j.ml_used+'ml' : ''}
+              ${j.print_type === 'fdm'   && j.grams_used ? ' · '+j.grams_used+'g' : ''}
+            </div>
+            ${j.description ? `<div style="font-size:12px;color:var(--muted)">${esc(j.description.slice(0,100))}${j.description.length>100?'…':''}</div>` : ''}
+            ${j.photos && j.photos.length > 1 ? `
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px">
+              ${j.photos.slice(1).map(p=>`<img src="${esc(p.url)}" alt="${esc(p.filename)}" loading="lazy"
+                style="width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--border);cursor:pointer"
+                onclick="openPhotoViewer('${esc(p.url)}','${esc(p.filename)}')">`).join('')}
+            </div>` : ''}
+          </div>
+        </div>`).join('')}
+      </div>`}
+    `);
   } catch(e) { html('view', errBox(e)); }
 }
 
