@@ -191,7 +191,7 @@ async function viewJobs() {
         <tr>
           <th>Réf</th><th>Titre</th>
           ${isAdmin ? '<th>Client</th>' : ''}
-          <th>Statut</th><th>Prix</th><th>ETA</th><th>Créé</th>
+          <th>Statut</th><th>Prix</th>${isAdmin ? '<th>Payé</th>' : ''}<th>ETA</th><th>Créé</th>
         </tr>
         ${jobs.length ? jobs.map(j => `<tr style="cursor:pointer" onclick="location.hash='#jobs/${j.id}'">
           <td><strong>${esc(j.ref)}</strong></td>
@@ -199,6 +199,7 @@ async function viewJobs() {
           ${isAdmin ? `<td>${esc(j.client_name)}</td>` : ''}
           <td>${badge(j.status)}</td>
           <td>${j.price_final ? money(j.price_final) : '—'}</td>
+          ${isAdmin ? `<td>${j.paid ? '<span style="color:#22c55e;font-weight:700">✓</span>' : '<span style="color:#f59e0b">✗</span>'}</td>` : ''}
           <td>${fmt(j.eta)}</td>
           <td>${fmtD(j.created_at)}</td>
         </tr>`).join('') : '<tr><td colspan="7" class="empty">Aucun job</td></tr>'}
@@ -250,6 +251,11 @@ async function viewJob(id) {
               <tr><td style="color:var(--muted)">ETA</td><td>${fmt(j.eta)}</td></tr>
               <tr><td style="color:var(--muted)">Prix auto</td><td>${j.price_auto ? money(j.price_auto) : '—'}</td></tr>
               <tr><td style="color:var(--muted)">Prix final</td><td><strong>${j.price_final ? money(j.price_final) : '—'}</strong></td></tr>
+              ${isAdmin ? `<tr><td style="color:var(--muted)">Paiement</td><td>
+                <button id="pay-toggle-btn" class="btn btn-sm ${j.paid ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px">
+                  ${j.paid ? '✓ Payé' : '✗ Non payé'}
+                </button>
+              </td></tr>` : ''}
             </table>
             ${j.description ? `<hr style="border-color:var(--border);margin:16px 0"><p style="color:var(--muted)">${esc(j.description)}</p>` : ''}
             ${isAdmin && j.notes_admin ? `<hr style="border-color:var(--border);margin:16px 0"><p style="font-size:12px;color:var(--warning)">🔒 ${esc(j.notes_admin)}</p>` : ''}
@@ -386,6 +392,12 @@ async function viewJob(id) {
         location.hash = '#jobs';
       });
       el('add-item-btn')?.addEventListener('click', () => modalAddItem(id));
+
+      // Toggle paiement
+      el('pay-toggle-btn')?.addEventListener('click', async () => {
+        await patch(`/jobs/${id}/payment`, { paid: j.paid ? 0 : 1 });
+        viewJob(id);
+      });
 
       // Générer token de suivi
       el('gen-token-btn')?.addEventListener('click', async () => {

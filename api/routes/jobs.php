@@ -17,7 +17,7 @@ if ($method === 'GET' && $id === null) {
     $rows = $pdo->query(
         "SELECT j.id, j.ref, j.title, j.status, j.quantity, j.print_type,
                 j.grams_used, j.ml_used, j.print_hours,
-                j.price_final, j.eta, j.created_at, j.updated_at, j.queue_order,
+                j.price_final, j.paid, j.eta, j.created_at, j.updated_at, j.queue_order,
                 u.name AS client_name, p.name AS printer_name,
                 f.material AS filament_material, f.color AS filament_color, f.color_hex
          FROM jobs j
@@ -310,6 +310,16 @@ if ($method === 'DELETE' && $id !== null && $sub === 'items' && $sub_id !== null
     if (!$is_admin) json_err('Accès refusé', 403);
     $pdo->prepare('DELETE FROM job_items WHERE id = ? AND job_id = ?')->execute([$sub_id, $id]);
     json_ok(['deleted' => true]);
+}
+
+// ── PATCH /api/jobs/{id}/payment ─────────────────────────────
+if ($method === 'PATCH' && $id !== null && $sub === 'payment') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $b    = body();
+    $paid = (int)(!empty($b['paid']));
+    $pdo->prepare('UPDATE jobs SET paid = ?, paid_at = ? WHERE id = ?')
+        ->execute([$paid, $paid ? date('Y-m-d H:i:s') : null, $id]);
+    json_ok(['paid' => $paid]);
 }
 
 // ── POST /api/jobs/{id}/photos ────────────────────────────────
