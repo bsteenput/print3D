@@ -28,6 +28,7 @@ match(true) {
     $resource === 'auth' && $parts[1] === 'login'    => require __DIR__ . '/routes/auth.php',
     $resource === 'auth' && $parts[1] === 'me'       => require __DIR__ . '/routes/auth.php',
     $resource === 'auth' && $parts[1] === 'register' => require __DIR__ . '/routes/auth.php',
+    $resource === 'auth' && $parts[1] === 'reset'    => require __DIR__ . '/routes/auth.php',
 
     // ── Jobs ─────────────────────────────────────────────────
     $resource === 'jobs' && $id === null              => require __DIR__ . '/routes/jobs.php',

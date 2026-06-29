@@ -776,6 +776,7 @@ async function viewClients() {
           <td>${fmt(c.last_login)}</td>
           <td>
             <button class="btn btn-sm btn-ghost" onclick="editClient(${c.id},'${esc(c.name)}','${esc(c.email??'')}')">Modifier</button>
+            ${c.email?`<button class="btn btn-sm btn-ghost" onclick="genResetLink(${c.id})">🔑 Reset MDP</button>`:''}
             ${c.role==='client'?`<button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})">Supprimer</button>`:''}
           </td>
         </tr>`).join('')}
@@ -1345,6 +1346,84 @@ el('stl-close').addEventListener('click', () => {
 });
 el('stl-modal').addEventListener('click', e => { if (e.target === el('stl-modal')) el('stl-close').click(); });
 
+// ── Page reset mot de passe (/reset/{token}) ─────────────────
+async function showResetPage(resetToken) {
+  document.body.innerHTML = `<div style="max-width:400px;margin:80px auto;padding:20px;font-family:Inter,system-ui,sans-serif">
+    <div style="font-size:22px;font-weight:700;margin-bottom:24px">🖨 Print3D — Nouveau mot de passe</div>
+    <div id="reset-content">Vérification…</div>
+  </div>`;
+
+  const box = document.getElementById('reset-content');
+
+  let userName = '';
+  try {
+    const r = await fetch(`/api/auth/reset?token=${encodeURIComponent(resetToken)}`);
+    const json = await r.json();
+    if (!json.ok) {
+      box.innerHTML = '<div style="color:#ef4444;font-weight:600">Ce lien est invalide ou a expiré.</div>';
+      return;
+    }
+    userName = json.data.name;
+  } catch(e) {
+    box.innerHTML = '<div style="color:#ef4444">Erreur de connexion.</div>';
+    return;
+  }
+
+  box.innerHTML = `
+    <p style="margin-bottom:16px">Bonjour <strong>${esc(userName)}</strong>, choisis ton nouveau mot de passe.</p>
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Nouveau mot de passe</label>
+      <input type="password" id="rp-pass" placeholder="6 caractères minimum"
+             style="width:100%;padding:8px;border:2px solid #000;font-size:14px;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px">Confirmer</label>
+      <input type="password" id="rp-confirm" placeholder="Répète le mot de passe"
+             style="width:100%;padding:8px;border:2px solid #000;font-size:14px;box-sizing:border-box">
+    </div>
+    <div id="rp-err" style="color:#ef4444;font-size:13px;margin-bottom:8px;display:none"></div>
+    <button id="rp-btn" style="width:100%;padding:10px;background:#000;color:#fff;border:2px solid #000;font-size:14px;font-weight:600;cursor:pointer">
+      Enregistrer
+    </button>
+  `;
+
+  document.getElementById('rp-btn').addEventListener('click', async () => {
+    const pass    = document.getElementById('rp-pass').value;
+    const confirm = document.getElementById('rp-confirm').value;
+    const errEl   = document.getElementById('rp-err');
+    errEl.style.display = 'none';
+
+    if (pass.length < 6) { errEl.textContent = 'Mot de passe trop court (6 car. min.)'; errEl.style.display='block'; return; }
+    if (pass !== confirm) { errEl.textContent = 'Les mots de passe ne correspondent pas.'; errEl.style.display='block'; return; }
+
+    document.getElementById('rp-btn').textContent = 'Enregistrement…';
+    document.getElementById('rp-btn').disabled = true;
+
+    try {
+      const res  = await fetch('/api/auth/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password: pass }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        box.innerHTML = `<div style="color:#22c55e;font-weight:600;font-size:16px">✓ Mot de passe mis à jour !<br>
+          <a href="/" style="color:#000;font-size:13px;margin-top:8px;display:inline-block">← Retour à l'accueil</a></div>`;
+      } else {
+        errEl.textContent = json.error || 'Erreur';
+        errEl.style.display = 'block';
+        document.getElementById('rp-btn').textContent = 'Enregistrer';
+        document.getElementById('rp-btn').disabled = false;
+      }
+    } catch(e) {
+      errEl.textContent = 'Erreur de connexion.';
+      errEl.style.display = 'block';
+      document.getElementById('rp-btn').textContent = 'Enregistrer';
+      document.getElementById('rp-btn').disabled = false;
+    }
+  });
+}
+
 // ── Page de suivi public (/track/{token}) ────────────────────
 async function showTrackingPage(trackingToken) {
   const STATUS_LABELS = {
@@ -1409,6 +1488,20 @@ async function showTrackingPage(trackingToken) {
   }
 }
 
+window.genResetLink = async (clientId) => {
+  const r = await post(`/clients/${clientId}/reset-token`, {});
+  const link = r.link;
+  openModal('Lien de réinitialisation', `
+    <p style="margin-bottom:12px">Envoie ce lien à <strong>${esc(r.name)}</strong>${r.email ? ` (${esc(r.email)})` : ''} :<br>
+    <small style="color:var(--muted)">Valable 1 heure.</small></p>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="reset-link-input" value="${esc(link)}" readonly
+             style="flex:1;font-size:12px;font-family:monospace;padding:6px;border:var(--bw) solid var(--border)">
+      <button class="btn btn-primary btn-sm" onclick="navigator.clipboard.writeText('${esc(link)}').then(()=>this.textContent='✓ Copié!')">Copier</button>
+    </div>
+  `, [{label:'Fermer', cls:'btn-ghost', click:closeModal}]);
+};
+
 window.copyTrackingLink = (token) => {
   const url = `${location.origin}/track/${token}`;
   navigator.clipboard.writeText(url).then(
@@ -1428,7 +1521,10 @@ el('theme-toggle').addEventListener('click', () => {
 });
 
 (async () => {
-  // Détecter une URL /track/{token} avant la vérification du login
+  // Détecter /reset/{token} et /track/{token} avant la vérification du login
+  const resetMatch = location.pathname.match(/^\/reset\/([a-f0-9]{32})$/i);
+  if (resetMatch) { showResetPage(resetMatch[1]); return; }
+
   const trackMatch = location.pathname.match(/^\/track\/([a-f0-9]{32})$/i);
   if (trackMatch) { showTrackingPage(trackMatch[1]); return; }
 

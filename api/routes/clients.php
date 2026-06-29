@@ -60,9 +60,29 @@ if ($method === 'PUT' && $id !== null) {
 }
 
 // ── DELETE /api/clients/{id} ──────────────────────────────────
-if ($method === 'DELETE' && $id !== null) {
+if ($method === 'DELETE' && $id !== null && $sub === null) {
     db()->prepare('DELETE FROM users WHERE id = ? AND role = \'client\'')->execute([$id]);
     json_ok(['deleted' => true]);
+}
+
+// ── POST /api/clients/{id}/reset-token ───────────────────────
+if ($method === 'POST' && $id !== null && $sub === 'reset-token') {
+    $stmt = db()->prepare('SELECT id, name, email FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    $user = $stmt->fetch();
+    if (!$user) json_err('Utilisateur introuvable', 404);
+
+    $token   = bin2hex(random_bytes(16));
+    $expires = date('Y-m-d H:i:s', time() + 3600);
+    db()->prepare('UPDATE users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?')
+        ->execute([$token, $expires, $id]);
+
+    json_ok([
+        'token' => $token,
+        'link'  => APP_URL . '/reset/' . $token,
+        'name'  => $user['name'],
+        'email' => $user['email'],
+    ]);
 }
 
 json_err('Méthode non supportée', 405);

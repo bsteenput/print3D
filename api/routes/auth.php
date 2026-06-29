@@ -92,4 +92,44 @@ if ($action === 'register' && $method === 'POST') {
     }
 }
 
+// ── GET /api/auth/reset?token=xxx — valider le token ─────────
+if ($action === 'reset' && $method === 'GET') {
+    $token = preg_replace('/[^a-fA-F0-9]/', '', $_GET['token'] ?? '');
+    if (!$token) json_err('Token manquant');
+
+    $stmt = db()->prepare(
+        'SELECT id, name, email FROM users
+         WHERE reset_token = ? AND reset_token_expires_at > NOW()'
+    );
+    $stmt->execute([$token]);
+    $user = $stmt->fetch();
+    if (!$user) json_err('Lien invalide ou expiré', 404);
+
+    json_ok(['name' => $user['name'], 'email' => $user['email']]);
+}
+
+// ── POST /api/auth/reset — appliquer le nouveau mot de passe ─
+if ($action === 'reset' && $method === 'POST') {
+    $b      = body();
+    $token  = preg_replace('/[^a-fA-F0-9]/', '', $b['token'] ?? '');
+    $pass   = $b['password'] ?? '';
+    if (!$token) json_err('Token manquant');
+    if (strlen($pass) < 6) json_err('Mot de passe trop court (6 car. min.)');
+
+    $stmt = db()->prepare(
+        'SELECT id, name FROM users
+         WHERE reset_token = ? AND reset_token_expires_at > NOW()'
+    );
+    $stmt->execute([$token]);
+    $user = $stmt->fetch();
+    if (!$user) json_err('Lien invalide ou expiré', 404);
+
+    $hash = password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]);
+    db()->prepare(
+        'UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?'
+    )->execute([$hash, $user['id']]);
+
+    json_ok(['message' => 'Mot de passe mis à jour']);
+}
+
 json_err('Route auth introuvable', 404);
