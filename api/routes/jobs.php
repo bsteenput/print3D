@@ -201,6 +201,22 @@ if ($method === 'PATCH' && $id !== null && $sub === 'status') {
     $pdo->prepare('UPDATE jobs SET ' . implode(', ', $set) . ' WHERE id = ?')
         ->execute([$status, $id]);
 
+    // Déduction de stock filament/résine quand le job passe en "done"
+    if ($status === 'done') {
+        $jd = $pdo->prepare('SELECT filament_id, print_type, grams_used, ml_used FROM jobs WHERE id = ?');
+        $jd->execute([$id]);
+        $jd = $jd->fetch();
+        if ($jd && $jd['filament_id']) {
+            if ($jd['print_type'] === 'resin' && (float)$jd['ml_used'] > 0) {
+                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, stock_grams - ?) WHERE id = ?')
+                    ->execute([(float)$jd['ml_used'], $jd['filament_id']]);
+            } elseif ($jd['print_type'] === 'fdm' && (float)$jd['grams_used'] > 0) {
+                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, stock_grams - ?) WHERE id = ?')
+                    ->execute([(float)$jd['grams_used'], $jd['filament_id']]);
+            }
+        }
+    }
+
     $msg = $b['message'] ?? null;
     $pdo->prepare('INSERT INTO job_events (job_id, status, message) VALUES (?,?,?)')
         ->execute([$id, $status, $msg]);
