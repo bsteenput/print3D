@@ -200,8 +200,8 @@ async function viewJobs() {
           <td>${esc(j.title)}</td>
           ${isAdmin ? `<td>${esc(j.client_name)}</td>` : ''}
           <td>${badge(j.status)}</td>
-          <td>${j.price_final ? money(j.price_final) : '—'}</td>
-          ${isAdmin ? `<td>${j.paid ? '<span style="color:#22c55e;font-weight:700">✓</span>' : '<span style="color:#f59e0b">✗</span>'}</td>` : ''}
+          <td>${j.gifted ? '<span style="color:#a855f7;font-size:13px">🎁 Offert</span>' : (j.price_final ? money(j.price_final) : '—')}</td>
+          ${isAdmin ? `<td>${j.paid || j.gifted ? '<span style="color:#22c55e;font-weight:700">✓</span>' : '<span style="color:#f59e0b">✗</span>'}</td>` : ''}
           <td>${fmt(j.eta)}</td>
           <td>${fmtD(j.created_at)}</td>
         </tr>`).join('') : '<tr><td colspan="7" class="empty">Aucun job</td></tr>'}
@@ -253,10 +253,13 @@ async function viewJob(id) {
               <tr><td style="color:var(--muted)">ETA</td><td>${fmt(j.eta)}</td></tr>
               <tr><td style="color:var(--muted)">Prix auto</td><td>${j.price_auto ? money(j.price_auto) : '—'}</td></tr>
               <tr><td style="color:var(--muted)">Prix final</td><td><strong>${j.price_final ? money(j.price_final) : '—'}</strong></td></tr>
-              ${isAdmin ? `<tr><td style="color:var(--muted)">Paiement</td><td>
-                <button id="pay-toggle-btn" class="btn btn-sm ${j.paid ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px">
-                  ${j.paid ? '✓ Payé' : '✗ Non payé'}
+              ${isAdmin ? `<tr><td style="color:var(--muted)">Paiement</td><td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <button id="gift-toggle-btn" class="btn btn-sm ${j.gifted ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px">
+                  🎁 ${j.gifted ? 'Offert' : 'Offrir'}
                 </button>
+                ${!j.gifted ? `<button id="pay-toggle-btn" class="btn btn-sm ${j.paid ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px">
+                  ${j.paid ? '✓ Payé' : '✗ Non payé'}
+                </button>` : '<span style="font-size:12px;color:#a855f7;font-weight:600">Prix mis à 0 €</span>'}
               </td></tr>` : ''}
             </table>
             ${j.description ? `<hr style="border-color:var(--border);margin:16px 0"><p style="color:var(--muted)">${esc(j.description)}</p>` : ''}
@@ -401,6 +404,13 @@ async function viewJob(id) {
       // Toggle galerie
       el('gallery-toggle-btn')?.addEventListener('click', async () => {
         await patch(`/jobs/${id}/gallery`, { in_gallery: j.in_gallery ? 0 : 1 });
+        viewJob(id);
+      });
+
+      // Toggle offert
+      el('gift-toggle-btn')?.addEventListener('click', async () => {
+        if (!j.gifted && !confirm('Marquer comme offert ? Le prix sera mis à 0 €.')) return;
+        await patch(`/jobs/${id}/gift`, { gifted: j.gifted ? 0 : 1 });
         viewJob(id);
       });
 
