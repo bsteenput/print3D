@@ -81,6 +81,19 @@ function calc_price_auto(float $grams, float $hours, float $price_per_kg, float 
     return round($filament_cost + $machine_cost, 2);
 }
 
+// ── URL de base (host réel de la requête) ────────────────────
+function base_url(): string {
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        // Derrière Traefik/Coolify le proto réel est dans X-Forwarded-Proto
+        if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+            $scheme = $_SERVER['HTTP_X_FORWARDED_PROTO'];
+        }
+        return $scheme . '://' . $_SERVER['HTTP_HOST'];
+    }
+    return APP_URL;
+}
+
 // ── Génération ref job ────────────────────────────────────────
 function next_job_ref(): string {
     $stmt = db()->query('SELECT MAX(CAST(SUBSTRING(ref, 5) AS UNSIGNED)) AS max_n FROM jobs');
@@ -252,7 +265,7 @@ function notify_client_status(int $job_id, string $status): void {
 
     $subject = "[Print3D] {$row['ref']} — {$label}";
     $track_line = $row['tracking_token']
-        ? "\nSuis l'avancement en direct : " . APP_URL . "/track/" . $row['tracking_token']
+        ? "\nSuis l'avancement en direct : " . base_url() . "/track/" . $row['tracking_token']
         : '';
 
     $body    = "Bonjour {$row['name']},\n\n"

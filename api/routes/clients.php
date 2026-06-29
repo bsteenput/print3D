@@ -79,7 +79,7 @@ if ($method === 'POST' && $id !== null && $sub === 'reset-token') {
 
     json_ok([
         'token' => $token,
-        'link'  => APP_URL . '/reset/' . $token,
+        'link'  => base_url() . '/reset/' . $token,
         'name'  => $user['name'],
         'email' => $user['email'],
     ]);
