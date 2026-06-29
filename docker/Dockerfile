@@ -10,4 +10,4 @@ RUN a2enmod rewrite
 COPY apache.conf /etc/apache2/sites-available/000-default.conf
 
 # PHP : afficher les erreurs en local
-RUN echo "display_errors = On\nerror_reporting = E_ALL" > /usr/local/etc/php/conf.d/local.ini
+RUN printf "display_errors = On\nerror_reporting = E_ALL\nupload_max_filesize = 50M\npost_max_size = 55M\nmemory_limit = 128M\n" > /usr/local/etc/php/conf.d/local.ini
