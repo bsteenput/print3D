@@ -219,10 +219,10 @@ if ($method === 'PATCH' && $id !== null && $sub === 'status') {
         $jd = $jd->fetch();
         if ($jd && $jd['filament_id']) {
             if ($jd['print_type'] === 'resin' && (float)$jd['ml_used'] > 0) {
-                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, stock_grams - ?) WHERE id = ?')
+                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, CAST(stock_grams AS SIGNED) - ?) WHERE id = ?')
                     ->execute([(float)$jd['ml_used'], $jd['filament_id']]);
             } elseif ($jd['print_type'] === 'fdm' && (float)$jd['grams_used'] > 0) {
-                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, stock_grams - ?) WHERE id = ?')
+                $pdo->prepare('UPDATE filaments SET stock_grams = GREATEST(0, CAST(stock_grams AS SIGNED) - ?) WHERE id = ?')
                     ->execute([(float)$jd['grams_used'], $jd['filament_id']]);
             }
         }
