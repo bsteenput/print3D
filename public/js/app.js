@@ -108,6 +108,7 @@ function route() {
     printers:  viewPrinters,
     filaments: viewFilaments,
     settings:  viewSettings,
+    stats:     viewStats,
   };
   (views[page] || (() => html('view', '<div class="empty">Page introuvable</div>')))();
 }
@@ -1022,6 +1023,84 @@ async function viewSettings() {
         }
       } catch(e) { el('probe-result').innerHTML = `<div class="alert alert-err" style="margin-top:8px">${esc(e.message)}</div>`; }
     });
+  } catch(e) { html('view', errBox(e)); }
+}
+
+// ── STATS ─────────────────────────────────────────────────────
+async function viewStats() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const s = await get('/stats');
+
+    const maxCA = Math.max(...s.monthly.map(m => m.ca), 1);
+    const barChart = (data, key, color, fmt_) => data.map(m => `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:0">
+        <div style="width:100%;background:#e5e7eb;border:1px solid #000;border-radius:2px 2px 0 0;height:80px;display:flex;align-items:flex-end">
+          <div style="width:100%;background:${color};height:${Math.round((m[key]/maxCA)*80)}px;min-height:${m[key]?2:0}px"></div>
+        </div>
+        <div style="font-size:10px;font-weight:700">${fmt_(m[key])}</div>
+        <div style="font-size:9px;color:var(--muted);text-align:center">${esc(m.month)}</div>
+      </div>`).join('');
+
+    html('view', `
+      <div class="page-title">Statistiques</div>
+      <div class="card">
+        <h2>CA mensuel (12 derniers mois)</h2>
+        <div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:4px">
+          ${s.monthly.map(m => `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:40px">
+            <div style="width:100%;background:#e5e7eb;border:1px solid #000;border-radius:2px 2px 0 0;height:80px;display:flex;align-items:flex-end">
+              <div style="width:100%;background:var(--primary);height:${Math.round((m.ca/maxCA)*80)}px;min-height:${m.ca?2:0}px"></div>
+            </div>
+            <div style="font-size:10px;font-weight:700">${money(m.ca)}</div>
+            <div style="font-size:9px;color:var(--muted);text-align:center">${esc(m.month)}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <h2>Paiements</h2>
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="font-size:28px;font-weight:700;color:#22c55e">${money(s.payments.total_paid_amount)}</div>
+            <div style="font-size:13px;color:var(--muted)">${s.payments.paid_count} jobs payés</div>
+          </div>
+          <div style="margin-top:8px;font-size:13px;color:#ef4444">Non payé : ${money(s.payments.unpaid_amount)} (${s.payments.unpaid_count} jobs)</div>
+        </div>
+        <div class="card">
+          <h2>Jobs par statut</h2>
+          ${s.by_status.map(r=>`
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px">
+            <span>${badge(r.status)}</span><strong>${r.n}</strong>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <h2>Matériaux utilisés</h2>
+          <div class="table-wrap"><table>
+            <tr><th>Matière</th><th>Type</th><th>Couleur</th><th>Qté</th><th>Jobs</th></tr>
+            ${s.materials.map(m=>`<tr>
+              <td>${esc(m.material)}</td>
+              <td><span class="badge" style="font-size:9px">${m.print_type}</span></td>
+              <td>${colorDot(m.color_hex)}${esc(m.color)}</td>
+              <td>${m.print_type==='resin' ? m.total_qty+'ml' : m.total_qty+'g'}</td>
+              <td>${m.job_count}</td>
+            </tr>`).join('')}
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>Top 5 clients</h2>
+          <div class="table-wrap"><table>
+            <tr><th>Client</th><th>Jobs</th><th>CA</th></tr>
+            ${s.top_clients.map(c=>`<tr>
+              <td>${esc(c.name)}</td>
+              <td>${c.job_count}</td>
+              <td>${money(c.revenue)}</td>
+            </tr>`).join('')}
+          </table></div>
+        </div>
+      </div>
+    `);
   } catch(e) { html('view', errBox(e)); }
 }
 

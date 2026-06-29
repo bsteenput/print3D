@@ -46,6 +46,9 @@ match(true) {
     // ── Suivi public par token ────────────────────────────────
     $resource === 'track'                             => require __DIR__ . '/routes/track.php',
 
+    // ── Statistiques (admin) ──────────────────────────────────
+    $resource === 'stats'                             => require __DIR__ . '/routes/stats.php',
+
     // ── Clients ──────────────────────────────────────────────
     $resource === 'clients'                           => require __DIR__ . '/routes/clients.php',
 
