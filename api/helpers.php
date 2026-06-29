@@ -164,6 +164,59 @@ function handle_stl_upload(int $job_id): array {
     return $saved;
 }
 
+// ── Upload photos ─────────────────────────────────────────────
+function handle_photo_upload(int $job_id): array {
+    $saved = [];
+    $files = $_FILES['photo'] ?? null;
+    if (!$files) return $saved;
+
+    if (!is_array($files['name'])) {
+        foreach ($files as $k => $v) $files[$k] = [$v];
+    }
+
+    $allowed_exts  = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+    $dir = UPLOAD_DIR . "job_{$job_id}/photos/";
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+    foreach ($files['name'] as $i => $name) {
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+        if ($files['size'][$i] > MAX_FILE_SIZE) continue;
+
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowed_exts)) continue;
+
+        $tmp = $files['tmp_name'][$i];
+
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime  = finfo_file($finfo, $tmp);
+            finfo_close($finfo);
+            if (!in_array($mime, $allowed_mimes)) continue;
+        }
+
+        $safe     = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $name);
+        $filename = uniqid() . '_' . $safe;
+        $dest     = $dir . $filename;
+
+        if (move_uploaded_file($tmp, $dest)) {
+            $pdo  = db();
+            $stmt = $pdo->prepare(
+                'INSERT INTO job_photos (job_id, filename, path, size_bytes) VALUES (?,?,?,?)'
+            );
+            $rel = "job_{$job_id}/photos/{$filename}";
+            $stmt->execute([$job_id, $name, $rel, $files['size'][$i]]);
+            $saved[] = [
+                'id'       => (int)$pdo->lastInsertId(),
+                'filename' => $name,
+                'url'      => '/api/photos/' . $job_id . '/' . urlencode($filename),
+            ];
+        }
+    }
+    return $saved;
+}
+
 // ── Email notification ────────────────────────────────────────
 function notify_client_status(int $job_id, string $status): void {
     $setting = db()->query("SELECT value FROM settings WHERE key_name='notify_on_status'")->fetchColumn();

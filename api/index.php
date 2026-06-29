@@ -36,6 +36,10 @@ match(true) {
     $resource === 'jobs' && $sub === 'status'         => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'files'          => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'items'          => require __DIR__ . '/routes/jobs.php',
+    $resource === 'jobs' && $sub === 'photos'         => require __DIR__ . '/routes/jobs.php',
+
+    // ── Photos (accès public) ─────────────────────────────────
+    $resource === 'photos'                            => require __DIR__ . '/routes/photos.php',
 
     // ── Clients ──────────────────────────────────────────────
     $resource === 'clients'                           => require __DIR__ . '/routes/clients.php',

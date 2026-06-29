@@ -283,6 +283,24 @@ async function viewJob(id) {
             </div>
           </div>
           <div class="card">
+            <h2>Photos du résultat
+              ${isAdmin ? `<label class="btn btn-sm btn-ghost" style="cursor:pointer;font-weight:400">
+                + Ajouter<input type="file" id="photo-input" accept="image/*" multiple style="display:none">
+              </label>` : ''}
+            </h2>
+            ${j.photos && j.photos.length ? `
+            <div id="photo-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:8px">
+              ${j.photos.map(p => `
+              <div style="position:relative" id="ph-${p.id}">
+                <img src="${esc(p.url)}" alt="${esc(p.filename)}" loading="lazy"
+                     style="width:100%;aspect-ratio:1;object-fit:cover;border:var(--bw) solid var(--border);cursor:pointer;border-radius:2px"
+                     onclick="openPhotoViewer('${esc(p.url)}','${esc(p.filename)}')">
+                ${isAdmin ? `<button onclick="deletePhoto(${j.id},${p.id})" style="position:absolute;top:2px;right:2px;background:#ef4444;color:#fff;border:none;border-radius:2px;width:18px;height:18px;cursor:pointer;font-size:10px;line-height:1;padding:0">✕</button>` : ''}
+              </div>`).join('')}
+            </div>` : `<div class="empty" style="padding:16px">${isAdmin ? 'Aucune photo — ajoutez des photos du résultat' : 'Aucune photo disponible'}</div>`}
+            <span id="photo-status" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div class="card">
             <h2>Timeline</h2>
             <ul class="timeline">
               ${j.events.map(ev=>`<li>
@@ -361,6 +379,23 @@ async function viewJob(id) {
         location.hash = '#jobs';
       });
       el('add-item-btn')?.addEventListener('click', () => modalAddItem(id));
+
+      // Upload photos
+      el('photo-input')?.addEventListener('change', async () => {
+        const files = el('photo-input').files;
+        if (!files.length) return;
+        el('photo-status').textContent = 'Upload…';
+        const fd = new FormData();
+        for (let i = 0; i < files.length; i++) fd.append('photo[]', files[i]);
+        const headers = {};
+        if (token()) headers['Authorization'] = 'Bearer ' + token();
+        try {
+          const res = await fetch(`${API}/jobs/${id}/photos`, { method: 'POST', headers, body: fd });
+          const json = await res.json();
+          el('photo-status').textContent = json.ok ? `${json.data.length} photo(s) ajoutée(s)` : json.error;
+          if (json.ok) setTimeout(() => viewJob(id), 600);
+        } catch(e) { el('photo-status').textContent = 'Erreur upload'; }
+      });
     }
   } catch(e) { html('view', errBox(e)); }
 }
@@ -369,6 +404,16 @@ window.deleteFile = async (jobId, fileId) => {
   if (!confirm('Supprimer ce fichier ?')) return;
   await del(`/jobs/${jobId}/files?file_id=${fileId}`);
   el('fi-' + fileId)?.remove();
+};
+
+window.deletePhoto = async (jobId, photoId) => {
+  if (!confirm('Supprimer cette photo ?')) return;
+  await del(`/jobs/${jobId}/photos?photo_id=${photoId}`);
+  el('ph-' + photoId)?.remove();
+};
+
+window.openPhotoViewer = (url, name) => {
+  openModal(name, `<div style="text-align:center"><img src="${esc(url)}" alt="${esc(name)}" style="max-width:100%;max-height:60vh;object-fit:contain"></div>`, [{label:'Fermer',cls:'btn-ghost',click:closeModal}]);
 };
 
 function itemFileOptions(selectedId) {

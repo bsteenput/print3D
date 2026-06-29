@@ -73,6 +73,13 @@ if ($method === 'GET' && $id !== null && $sub === null) {
     $events->execute([$id]);
     $job['events'] = $events->fetchAll();
 
+    $photos_stmt = $pdo->prepare('SELECT id, filename, path, size_bytes, uploaded_at FROM job_photos WHERE job_id = ? ORDER BY uploaded_at');
+    $photos_stmt->execute([$id]);
+    $job['photos'] = array_map(function ($p) use ($id) {
+        $p['url'] = '/api/photos/' . $id . '/' . urlencode(basename($p['path']));
+        return $p;
+    }, $photos_stmt->fetchAll());
+
     json_ok($job);
 }
 
@@ -298,6 +305,33 @@ if ($method === 'PUT' && $id !== null && $sub === 'items' && $sub_id !== null) {
 if ($method === 'DELETE' && $id !== null && $sub === 'items' && $sub_id !== null) {
     if (!$is_admin) json_err('Accès refusé', 403);
     $pdo->prepare('DELETE FROM job_items WHERE id = ? AND job_id = ?')->execute([$sub_id, $id]);
+    json_ok(['deleted' => true]);
+}
+
+// ── POST /api/jobs/{id}/photos ────────────────────────────────
+if ($method === 'POST' && $id !== null && $sub === 'photos') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $stmt = $pdo->prepare('SELECT id FROM jobs WHERE id = ?');
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) json_err('Job introuvable', 404);
+
+    $saved = handle_photo_upload($id);
+    json_ok($saved, 201);
+}
+
+// ── DELETE /api/jobs/{id}/photos  (query ?photo_id=N) ────────
+if ($method === 'DELETE' && $id !== null && $sub === 'photos') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $photo_id = (int)($_GET['photo_id'] ?? 0);
+    if (!$photo_id) json_err('photo_id requis');
+
+    $row = $pdo->prepare('SELECT path FROM job_photos WHERE id = ? AND job_id = ?');
+    $row->execute([$photo_id, $id]);
+    $f = $row->fetch();
+    if (!$f) json_err('Photo introuvable', 404);
+
+    @unlink(UPLOAD_DIR . $f['path']);
+    $pdo->prepare('DELETE FROM job_photos WHERE id = ?')->execute([$photo_id]);
     json_ok(['deleted' => true]);
 }
 
