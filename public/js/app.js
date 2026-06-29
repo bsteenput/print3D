@@ -253,6 +253,13 @@ async function viewJob(id) {
             </table>
             ${j.description ? `<hr style="border-color:var(--border);margin:16px 0"><p style="color:var(--muted)">${esc(j.description)}</p>` : ''}
             ${isAdmin && j.notes_admin ? `<hr style="border-color:var(--border);margin:16px 0"><p style="font-size:12px;color:var(--warning)">🔒 ${esc(j.notes_admin)}</p>` : ''}
+            ${isAdmin ? `<hr style="border-color:var(--border);margin:16px 0">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              ${j.tracking_token
+                ? `<span style="font-size:12px;color:var(--muted)">Lien de suivi :</span>
+                   <button class="btn btn-sm btn-ghost" onclick="copyTrackingLink('${esc(j.tracking_token)}')">📋 Copier le lien</button>`
+                : `<button class="btn btn-sm btn-ghost" id="gen-token-btn">🔗 Générer lien de suivi</button>`}
+            </div>` : ''}
           </div>
           ${j.status === 'printing' ? `
           <div class="card">
@@ -379,6 +386,13 @@ async function viewJob(id) {
         location.hash = '#jobs';
       });
       el('add-item-btn')?.addEventListener('click', () => modalAddItem(id));
+
+      // Générer token de suivi
+      el('gen-token-btn')?.addEventListener('click', async () => {
+        const r = await post(`/jobs/${id}/token`, {});
+        copyTrackingLink(r.tracking_token);
+        viewJob(id);
+      });
 
       // Upload photos
       el('photo-input')?.addEventListener('change', async () => {
@@ -1193,6 +1207,78 @@ el('stl-close').addEventListener('click', () => {
 });
 el('stl-modal').addEventListener('click', e => { if (e.target === el('stl-modal')) el('stl-close').click(); });
 
+// ── Page de suivi public (/track/{token}) ────────────────────
+async function showTrackingPage(trackingToken) {
+  const STATUS_LABELS = {
+    queued:'En file d\'attente', printing:'En cours d\'impression',
+    done:'Prêt à récupérer', picked_up:'Récupéré', cancelled:'Annulé'
+  };
+  const STATUS_COLORS = {
+    queued:'var(--muted)', printing:'var(--primary)', done:'#22c55e',
+    picked_up:'var(--primary)', cancelled:'#ef4444'
+  };
+  const STATUS_PCT = { queued:10, printing:60, done:100, picked_up:100, cancelled:0 };
+
+  document.body.innerHTML = `<div style="max-width:560px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif">
+    <div style="font-size:22px;font-weight:700;margin-bottom:24px">🖨 Print3D — Suivi de commande</div>
+    <div id="track-content" style="color:var(--muted)">Chargement…</div>
+  </div>`;
+
+  try {
+    const res = await fetch(`/api/track/${encodeURIComponent(trackingToken)}`);
+    const json = await res.json();
+    if (!json.ok || !json.data) {
+      document.getElementById('track-content').innerHTML =
+        '<div style="color:#ef4444;font-weight:600">Lien de suivi invalide ou expiré.</div>';
+      return;
+    }
+    const j = json.data;
+    const pct = STATUS_PCT[j.status] || 0;
+    const label = STATUS_LABELS[j.status] || j.status;
+    const color = STATUS_COLORS[j.status] || 'var(--muted)';
+
+    document.getElementById('track-content').innerHTML = `
+      <div style="border:2px solid #000;border-radius:4px;padding:20px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">${esc(j.ref)}</div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:16px">${esc(j.title)}</div>
+        <div style="font-size:16px;font-weight:600;color:${color};margin-bottom:12px">● ${esc(label)}</div>
+        ${pct > 0 ? `
+        <div style="height:8px;background:#e5e7eb;border:1px solid #000;border-radius:99px;overflow:hidden;margin-bottom:16px">
+          <div style="height:100%;width:${pct}%;background:${color};transition:width .5s"></div>
+        </div>` : ''}
+        ${j.price_final ? `<div style="font-size:14px;color:var(--muted)">Prix : <strong>${esc(String(j.price_final))} €</strong></div>` : ''}
+      </div>
+      ${j.photos && j.photos.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-weight:600;margin-bottom:8px">Photos</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px">
+          ${j.photos.map(p=>`<img src="${esc(p.url)}" alt="${esc(p.filename)}" loading="lazy"
+            style="width:100%;aspect-ratio:1;object-fit:cover;border:2px solid #000;border-radius:4px">`).join('')}
+        </div>
+      </div>` : ''}
+      ${j.events && j.events.length ? `
+      <div>
+        <div style="font-weight:600;margin-bottom:8px">Historique</div>
+        ${j.events.map(ev=>`
+        <div style="display:flex;gap:12px;margin-bottom:8px;font-size:13px">
+          <div style="color:var(--muted);white-space:nowrap">${esc(ev.created_at ? new Date(ev.created_at).toLocaleString('fr-BE') : '')}</div>
+          <div><strong>${esc(STATUS_LABELS[ev.status]||ev.status)}</strong>${ev.message?` — ${esc(ev.message)}`:''}</div>
+        </div>`).join('')}
+      </div>` : ''}
+    `;
+  } catch(e) {
+    document.getElementById('track-content').innerHTML = `<div style="color:#ef4444">Erreur : ${esc(e.message)}</div>`;
+  }
+}
+
+window.copyTrackingLink = (token) => {
+  const url = `${location.origin}/track/${token}`;
+  navigator.clipboard.writeText(url).then(
+    () => { alert('Lien copié : ' + url); },
+    () => { prompt('Copier ce lien :', url); }
+  );
+};
+
 // ── Boot ──────────────────────────────────────────────────────
 
 // Thème : appliquer avant le premier rendu pour éviter le flash
@@ -1204,6 +1290,10 @@ el('theme-toggle').addEventListener('click', () => {
 });
 
 (async () => {
+  // Détecter une URL /track/{token} avant la vérification du login
+  const trackMatch = location.pathname.match(/^\/track\/([a-f0-9]{32})$/i);
+  if (trackMatch) { showTrackingPage(trackMatch[1]); return; }
+
   if (token()) {
     try {
       _user = await get('/auth/me');

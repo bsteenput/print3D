@@ -80,6 +80,9 @@ if ($method === 'GET' && $id !== null && $sub === null) {
         return $p;
     }, $photos_stmt->fetchAll());
 
+    // Masquer le token de suivi aux clients
+    if (!$is_admin) unset($job['tracking_token']);
+
     json_ok($job);
 }
 
@@ -95,8 +98,8 @@ if ($method === 'POST' && $id === null && $sub === null) {
 
     $stmt = $pdo->prepare(
         'INSERT INTO jobs (ref, client_id, printer_id, filament_id, title, description,
-                           quantity, print_type, status, hourly_rate, notes_admin, queue_order)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,
+                           quantity, print_type, status, hourly_rate, notes_admin, tracking_token, queue_order)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,
                  (SELECT COALESCE(MAX(queue_order),0)+1 FROM jobs j2))'
     );
     $stmt->execute([
@@ -110,6 +113,7 @@ if ($method === 'POST' && $id === null && $sub === null) {
         $is_admin ? ($b['status'] ?? 'queued') : 'queued',
         $hourly,
         $is_admin ? ($b['notes_admin'] ?? null) : null,
+        generate_tracking_token(),
     ]);
     $new_id = (int)$pdo->lastInsertId();
 
@@ -317,6 +321,14 @@ if ($method === 'POST' && $id !== null && $sub === 'photos') {
 
     $saved = handle_photo_upload($id);
     json_ok($saved, 201);
+}
+
+// ── POST /api/jobs/{id}/token  (génère ou régénère le token) ──
+if ($method === 'POST' && $id !== null && $sub === 'token') {
+    if (!$is_admin) json_err('Accès refusé', 403);
+    $token = generate_tracking_token();
+    $pdo->prepare('UPDATE jobs SET tracking_token = ? WHERE id = ?')->execute([$token, $id]);
+    json_ok(['tracking_token' => $token]);
 }
 
 // ── DELETE /api/jobs/{id}/photos  (query ?photo_id=N) ────────

@@ -217,13 +217,18 @@ function handle_photo_upload(int $job_id): array {
     return $saved;
 }
 
+// ── Génération token de suivi ─────────────────────────────────
+function generate_tracking_token(): string {
+    return bin2hex(random_bytes(16));
+}
+
 // ── Email notification ────────────────────────────────────────
 function notify_client_status(int $job_id, string $status): void {
     $setting = db()->query("SELECT value FROM settings WHERE key_name='notify_on_status'")->fetchColumn();
     if (!$setting) return;
 
     $stmt = db()->prepare('
-        SELECT j.ref, j.title, j.price_final, u.name, u.email
+        SELECT j.ref, j.title, j.price_final, j.tracking_token, u.name, u.email
         FROM jobs j JOIN users u ON u.id = j.client_id
         WHERE j.id = ?
     ');
@@ -246,11 +251,14 @@ function notify_client_status(int $job_id, string $status): void {
     }
 
     $subject = "[Print3D] {$row['ref']} — {$label}";
+    $track_line = $row['tracking_token']
+        ? "\nSuis l'avancement en direct : " . APP_URL . "/track/" . $row['tracking_token']
+        : '';
+
     $body    = "Bonjour {$row['name']},\n\n"
              . "Ton impression « {$row['title']} » ({$row['ref']}) a changé de statut :\n\n"
              . "  ➜  {$label}\n"
-             . $price_line . "\n\n"
-             . "Suis tes impressions : " . APP_URL . "\n\n"
+             . $price_line . $track_line . "\n\n"
              . "— Bertrand";
 
     $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
