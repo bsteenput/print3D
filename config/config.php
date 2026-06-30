@@ -10,7 +10,7 @@ define('DB_CHARSET', 'utf8mb4');
 
 define('UPLOAD_DIR', __DIR__ . '/../uploads/');
 define('UPLOAD_URL', '/uploads/');
-define('MAX_FILE_SIZE', 50 * 1024 * 1024);
+define('MAX_FILE_SIZE', (int)(getenv('MAX_FILE_SIZE_MB') ?: 500) * 1024 * 1024);
 define('ALLOWED_EXTENSIONS', ['stl', 'STL']);
 
 define('JWT_SECRET', getenv('JWT_SECRET') ?: 'CHANGE_ME_RANDOM_32_CHARS');

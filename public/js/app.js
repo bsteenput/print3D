@@ -291,17 +291,23 @@ async function viewJob(id) {
             <h2>Fichiers STL</h2>
             ${j.files.length ? `<ul class="file-list" id="file-list">
               ${j.files.map(f => `<li id="fi-${f.id}">
+                ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" style="margin-right:6px">` : ''}
                 <button class="btn btn-sm btn-ghost" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁 Voir</button>
-                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.filename)}</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.relative_path || f.filename)}">${esc(f.relative_path || f.filename)}</span>
                 <span style="color:var(--muted)">${formatBytes(f.size_bytes)}</span>
                 ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
               </li>`).join('')}
             </ul>` : '<div class="empty" style="padding:16px">Aucun fichier</div>'}
-            <div style="margin-top:12px">
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <input type="file" id="stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
               <button class="btn btn-ghost btn-sm" onclick="el('stl-input').click()">+ Ajouter STL</button>
-              <span id="upload-status" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+              ${isAdmin ? `<input type="file" id="stl-folder-input" multiple webkitdirectory style="display:none">
+              <button class="btn btn-ghost btn-sm" onclick="el('stl-folder-input').click()">+ Ajouter un dossier</button>` : ''}
+              <span id="upload-status" style="font-size:12px;color:var(--muted)"></span>
             </div>
+            ${isAdmin && j.files.length ? `<div style="margin-top:8px">
+              <button class="btn btn-sm btn-primary" id="bulk-create-items-btn">+ Créer un objet pour chaque fichier sélectionné</button>
+            </div>` : ''}
           </div>
           <div class="card">
             <h2>Photos du résultat
@@ -347,7 +353,7 @@ async function viewJob(id) {
           <tr><th>Nom</th><th>Fichier STL</th><th style="text-align:center">Qté</th><th>Notes</th><th>Statut</th>${isAdmin?'<th></th>':''}</tr>
           ${j.items.map(it => `<tr id="item-row-${it.id}">
             <td>${esc(it.name)}</td>
-            <td style="color:var(--muted)">${it.filename ? esc(it.filename) : '—'}</td>
+            <td style="color:var(--muted)">${it.filename ? esc(it.relative_path || it.filename) : '—'}</td>
             <td style="text-align:center">${it.quantity}</td>
             <td style="color:var(--muted);font-size:12px">${it.notes ? esc(it.notes) : ''}</td>
             <td>${isAdmin
@@ -369,13 +375,25 @@ async function viewJob(id) {
     j.items.forEach(it => { window._jobItems[it.id] = it; });
     window._jobFiles = j.files;
 
-    // STL upload
-    el('stl-input')?.addEventListener('change', async () => {
-      const f = el('stl-input').files;
-      if (!f.length) return;
-      el('upload-status').textContent = 'Upload…';
+    // STL upload (fichiers seuls ou dossier complet — webkitRelativePath préserve la structure)
+    async function uploadStlFiles(fileList) {
+      if (!fileList.length) return;
+      const totalBytes = Array.from(fileList).reduce((s, f) => s + f.size, 0);
+      const POST_MAX = 1100 * 1024 * 1024;
+      if (totalBytes > POST_MAX) {
+        el('upload-status').textContent = `Trop lourd : ${formatBytes(totalBytes)} — limite ${formatBytes(POST_MAX)}`;
+        return;
+      }
+      if (totalBytes > 900 * 1024 * 1024) {
+        el('upload-status').textContent = `⚠ Fichier(s) volumineux (${formatBytes(totalBytes)}) — upload en cours…`;
+      } else {
+        el('upload-status').textContent = `Upload… (${formatBytes(totalBytes)})`;
+      }
       const fd = new FormData();
-      for (let i=0; i<f.length; i++) fd.append('stl[]', f[i]);
+      for (let i=0; i<fileList.length; i++) {
+        fd.append('stl[]', fileList[i]);
+        fd.append('stl_paths[]', fileList[i].webkitRelativePath || fileList[i].name);
+      }
       const headers = {};
       if (token()) headers['Authorization'] = 'Bearer ' + token();
       try {
@@ -384,6 +402,16 @@ async function viewJob(id) {
         el('upload-status').textContent = json.ok ? `${json.data.length} fichier(s) uploadé(s)` : json.error;
         if (json.ok) setTimeout(() => viewJob(id), 800);
       } catch(e) { el('upload-status').textContent = 'Erreur upload'; }
+    }
+    el('stl-input')?.addEventListener('change', () => uploadStlFiles(el('stl-input').files));
+    el('stl-folder-input')?.addEventListener('change', () => uploadStlFiles(el('stl-folder-input').files));
+
+    // Création en masse d'objets à imprimer depuis les fichiers cochés
+    el('bulk-create-items-btn')?.addEventListener('click', async () => {
+      const file_ids = [...document.querySelectorAll('.file-pick:checked')].map(c => +c.value);
+      if (!file_ids.length) { alert('Coche au moins un fichier'); return; }
+      await post(`/jobs/${id}/items`, { file_ids });
+      viewJob(id);
     });
 
     // Démarre le monitor temps réel si le job est en cours d'impression
@@ -465,7 +493,7 @@ window.openPhotoViewer = (url, name) => {
 
 function itemFileOptions(selectedId) {
   const files = window._jobFiles ?? [];
-  const opts = files.map(f => `<option value="${f.id}"${f.id===selectedId?' selected':''}>${esc(f.filename)}</option>`).join('');
+  const opts = files.map(f => `<option value="${f.id}"${f.id===selectedId?' selected':''}>${esc(f.relative_path || f.filename)}</option>`).join('');
   return `<option value="">— Aucun fichier —</option>${opts}`;
 }
 

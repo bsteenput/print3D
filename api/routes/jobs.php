@@ -51,16 +51,18 @@ if ($method === 'GET' && $id !== null && $sub === null) {
     // hide admin notes from clients
     if (!$is_admin) unset($job['notes_admin']);
 
-    $files = $pdo->prepare('SELECT id, filename, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
+    $files = $pdo->prepare('SELECT id, filename, relative_path, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
     $files->execute([$id]);
     $job['files'] = array_map(function ($f) use ($id) {
-        $f['url'] = '/api/files/' . $id . '/' . basename($f['path']);
+        // chemin servi = tout ce qui suit "job_{id}/" dans le path stocké (préserve les sous-dossiers)
+        $served = preg_replace('#^job_' . $id . '/#', '', $f['path']);
+        $f['url'] = '/api/files/' . $id . '/' . $served;
         return $f;
     }, $files->fetchAll());
 
     $items_stmt = $pdo->prepare(
         'SELECT i.id, i.file_id, i.name, i.quantity, i.status, i.notes, i.sort_order,
-                f.filename
+                f.filename, f.relative_path
          FROM job_items i
          LEFT JOIN job_files f ON f.id = i.file_id
          WHERE i.job_id = ?
@@ -275,6 +277,28 @@ if ($method === 'DELETE' && $id !== null && $sub === null) {
 if ($method === 'POST' && $id !== null && $sub === 'items') {
     if (!$is_admin) json_err('Accès refusé', 403);
     $b = body();
+
+    // Création en masse : { file_ids: [1,2,3] } — un objet par fichier sélectionné,
+    // pratique après l'upload d'un dossier complet pour choisir quoi imprimer.
+    if (!empty($b['file_ids']) && is_array($b['file_ids'])) {
+        $file_ids = array_map('intval', $b['file_ids']);
+        $stmt = $pdo->prepare('SELECT id, filename FROM job_files WHERE id = ? AND job_id = ?');
+        $insert = $pdo->prepare(
+            'INSERT INTO job_items (job_id, file_id, name, quantity, sort_order)
+             VALUES (?, ?, ?, 1, (SELECT COALESCE(MAX(sort_order),0)+1 FROM job_items ji2 WHERE ji2.job_id = ?))'
+        );
+        $created = [];
+        foreach ($file_ids as $fid) {
+            $stmt->execute([$fid, $id]);
+            $f = $stmt->fetch();
+            if (!$f) continue;
+            $name = pathinfo($f['filename'], PATHINFO_FILENAME);
+            $insert->execute([$id, $fid, $name, $id]);
+            $created[] = (int)$pdo->lastInsertId();
+        }
+        json_ok(['created' => $created], 201);
+    }
+
     $name = trim($b['name'] ?? '');
     if (!$name) json_err('Nom requis');
     $file_id = !empty($b['file_id']) ? (int)$b['file_id'] : null;

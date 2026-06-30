@@ -108,6 +108,7 @@ CREATE TABLE job_files (
     id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     job_id      INT UNSIGNED  NOT NULL,
     filename    VARCHAR(255)  NOT NULL,           -- nom original
+    relative_path VARCHAR(500) NULL,               -- chemin dans le dossier uploadé (ex: 28mm/supp/x.stl)
     path        VARCHAR(500)  NOT NULL,           -- chemin relatif sur le serveur
     size_bytes  INT UNSIGNED  NULL,
     uploaded_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,

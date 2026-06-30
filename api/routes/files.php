@@ -6,8 +6,12 @@ $is_admin = $user['role'] === 'admin';
 
 if ($method !== 'GET') json_err('Méthode non supportée', 405);
 
-$job_id   = (int)($parts[1] ?? 0);
-$filename = basename($parts[2] ?? '');   // basename() neutralise toute traversée de chemin
+$job_id    = (int)($parts[1] ?? 0);
+// Le fichier peut être dans un sous-dossier (upload de dossier complet) : on rejoint tous les segments restants,
+// chacun passé par basename() pour neutraliser toute traversée de chemin (../).
+$segments = array_map('basename', array_slice($parts, 2));
+$filename = end($segments) ?: '';
+$relpath  = implode('/', $segments);
 
 if (!$job_id || !$filename) json_err('Paramètres manquants', 400);
 
@@ -21,7 +25,7 @@ if (!$job) json_err('Job introuvable', 404);
 if (!$is_admin && (int)$job['client_id'] !== (int)$user['id']) json_err('Accès refusé', 403);
 
 // Vérifier que le fichier appartient bien à ce job en base (empêche de deviner les noms)
-$path = "job_{$job_id}/{$filename}";
+$path = "job_{$job_id}/{$relpath}";
 $stmt = $pdo->prepare('SELECT path FROM job_files WHERE path = ? AND job_id = ?');
 $stmt->execute([$path, $job_id]);
 $file = $stmt->fetch();

@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS job_photos (
 
 Le `print_type` (`fdm` ou `resin`) est stocké à la fois sur le job et sur le matériau.
 
+## Workflow de développement
+
+- **Autonomie** : tu peux réfléchir et implémenter de manière autonome sans demander de validation à chaque étape.
+- **Test obligatoire avant tout commit** : avant de créer un commit, tester l'implémentation de manière extensive sur le site qui tourne en local — tester le chemin nominal ET les cas limites, vérifier qu'il n'y a pas de régression dans les fonctionnalités existantes.
+- **Commits réguliers** : committer dès qu'une fonctionnalité ou une correction est stable et testée. Ne jamais accumuler trop de changements non commités.
+- **Ne jamais pousser** : laisser Bertrand pousser les commits vers le remote. Ne pas exécuter `git push`.
+
 ## Déploiement (Coolify)
 
 - Le container lit les variables d'environnement `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`, `JWT_SECRET`, `APP_URL`, `MAIL_FROM`, `MAIL_FROM_NAME`.

@@ -131,6 +131,9 @@ function handle_stl_upload(int $job_id): array {
     $dir = UPLOAD_DIR . "job_{$job_id}/";
     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
+    // Chemins relatifs envoyés en parallèle (upload de dossier complet) : un par fichier, même ordre
+    $rel_paths = $_POST['stl_paths'] ?? [];
+
     foreach ($files['name'] as $i => $name) {
         if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
         if ($files['size'][$i] > MAX_FILE_SIZE) continue;
@@ -156,21 +159,35 @@ function handle_stl_upload(int $job_id): array {
         }
         if (!$safe_content) continue;
 
+        // Chemin relatif (dossier d'origine), nettoyé segment par segment — évite ../ et caractères dangereux
+        $rel_path = null;
+        if (!empty($rel_paths[$i]) && is_string($rel_paths[$i])) {
+            $segments = array_filter(explode('/', str_replace('\\', '/', $rel_paths[$i])), fn($s) => $s !== '' && $s !== '.' && $s !== '..');
+            $segments = array_map(fn($s) => preg_replace('/[^a-zA-Z0-9_\-. ]/', '_', $s), $segments);
+            if ($segments) $rel_path = implode('/', $segments);
+        }
+        $rel_path ??= $name;
+
+        $sub_dir = trim(dirname($rel_path), '.');
+        $dest_dir = $sub_dir !== '' ? $dir . $sub_dir . '/' : $dir;
+        if (!is_dir($dest_dir)) mkdir($dest_dir, 0755, true);
+
         $safe     = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $name);
         $filename = uniqid() . '_' . $safe;
-        $dest     = $dir . $filename;
+        $dest     = $dest_dir . $filename;
 
         if (move_uploaded_file($tmp, $dest)) {
             $pdo  = db();
             $stmt = $pdo->prepare(
-                'INSERT INTO job_files (job_id, filename, path, size_bytes) VALUES (?,?,?,?)'
+                'INSERT INTO job_files (job_id, filename, relative_path, path, size_bytes) VALUES (?,?,?,?,?)'
             );
-            $rel = "job_{$job_id}/{$filename}";
-            $stmt->execute([$job_id, $name, $rel, $files['size'][$i]]);
+            $rel = $sub_dir !== '' ? "job_{$job_id}/{$sub_dir}/{$filename}" : "job_{$job_id}/{$filename}";
+            $stmt->execute([$job_id, $name, $rel_path, $rel, $files['size'][$i]]);
             $saved[] = [
-                'id'       => (int)$pdo->lastInsertId(),
-                'filename' => $name,
-                'url'      => '/api/files/' . $job_id . '/' . $filename,
+                'id'            => (int)$pdo->lastInsertId(),
+                'filename'      => $name,
+                'relative_path' => $rel_path,
+                'url'           => '/api/files/' . $job_id . '/' . ltrim(($sub_dir !== '' ? $sub_dir . '/' : '') . $filename, '/'),
             ];
         }
     }
