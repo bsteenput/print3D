@@ -305,6 +305,15 @@ async function viewJob(id) {
               <button class="btn btn-ghost btn-sm" onclick="el('stl-folder-input').click()">+ Ajouter un dossier</button>` : ''}
               <span id="upload-status" style="font-size:12px;color:var(--muted)"></span>
             </div>
+            <div id="upload-progress-wrap" style="display:none;margin-top:8px">
+              <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+                <div id="upload-progress-bar" style="background:var(--primary,#6366f1);height:100%;width:0%;transition:width 0.15s ease"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:4px">
+                <span id="upload-progress-text" style="font-size:11px;color:var(--muted)"></span>
+                <span id="upload-progress-pct"  style="font-size:11px;color:var(--muted)"></span>
+              </div>
+            </div>
             ${isAdmin && j.files.length ? `<div style="margin-top:8px">
               <button class="btn btn-sm btn-primary" id="bulk-create-items-btn">+ Créer un objet pour chaque fichier sélectionné</button>
             </div>` : ''}
@@ -376,32 +385,64 @@ async function viewJob(id) {
     window._jobFiles = j.files;
 
     // STL upload (fichiers seuls ou dossier complet — webkitRelativePath préserve la structure)
-    async function uploadStlFiles(fileList) {
+    function uploadStlFiles(fileList) {
       if (!fileList.length) return;
       const totalBytes = Array.from(fileList).reduce((s, f) => s + f.size, 0);
       const POST_MAX = 1100 * 1024 * 1024;
+      const statusEl  = el('upload-status');
+      const wrapEl    = el('upload-progress-wrap');
+      const barEl     = el('upload-progress-bar');
+      const textEl    = el('upload-progress-text');
+      const pctEl     = el('upload-progress-pct');
+
       if (totalBytes > POST_MAX) {
-        el('upload-status').textContent = `Trop lourd : ${formatBytes(totalBytes)} — limite ${formatBytes(POST_MAX)}`;
+        statusEl.textContent = `Trop lourd : ${formatBytes(totalBytes)} — limite ${formatBytes(POST_MAX)}`;
         return;
       }
-      if (totalBytes > 900 * 1024 * 1024) {
-        el('upload-status').textContent = `⚠ Fichier(s) volumineux (${formatBytes(totalBytes)}) — upload en cours…`;
-      } else {
-        el('upload-status').textContent = `Upload… (${formatBytes(totalBytes)})`;
-      }
+
       const fd = new FormData();
-      for (let i=0; i<fileList.length; i++) {
+      for (let i = 0; i < fileList.length; i++) {
         fd.append('stl[]', fileList[i]);
         fd.append('stl_paths[]', fileList[i].webkitRelativePath || fileList[i].name);
       }
-      const headers = {};
-      if (token()) headers['Authorization'] = 'Bearer ' + token();
-      try {
-        const res = await fetch(`${API}/jobs/${id}/files`, { method:'POST', headers, body: fd });
-        const json = await res.json();
-        el('upload-status').textContent = json.ok ? `${json.data.length} fichier(s) uploadé(s)` : json.error;
-        if (json.ok) setTimeout(() => viewJob(id), 800);
-      } catch(e) { el('upload-status').textContent = 'Erreur upload'; }
+
+      statusEl.textContent = '';
+      wrapEl.style.display = 'block';
+      barEl.style.width = '0%';
+      textEl.textContent = `0 B / ${formatBytes(totalBytes)}`;
+      pctEl.textContent  = '0%';
+
+      const xhr = new XMLHttpRequest();
+      let startTime = Date.now();
+
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct     = Math.round((e.loaded / e.total) * 100);
+        const elapsed = (Date.now() - startTime) / 1000;
+        const speed   = elapsed > 0 ? e.loaded / elapsed : 0;
+        const eta     = speed > 0 ? Math.round((e.total - e.loaded) / speed) : 0;
+        barEl.style.width  = pct + '%';
+        textEl.textContent = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}${speed > 0 ? '  •  ' + formatBytes(speed) + '/s' : ''}${eta > 0 ? '  •  ' + eta + 's restantes' : ''}`;
+        pctEl.textContent  = pct + '%';
+      };
+
+      xhr.onload = () => {
+        wrapEl.style.display = 'none';
+        try {
+          const json = JSON.parse(xhr.responseText);
+          statusEl.textContent = json.ok ? `${json.data.length} fichier(s) uploadé(s)` : json.error;
+          if (json.ok) setTimeout(() => viewJob(id), 800);
+        } catch { statusEl.textContent = 'Erreur de réponse serveur'; }
+      };
+
+      xhr.onerror = () => {
+        wrapEl.style.display = 'none';
+        statusEl.textContent = 'Erreur réseau';
+      };
+
+      xhr.open('POST', `${API}/jobs/${id}/files`);
+      if (token()) xhr.setRequestHeader('Authorization', 'Bearer ' + token());
+      xhr.send(fd);
     }
     el('stl-input')?.addEventListener('change', () => uploadStlFiles(el('stl-input').files));
     el('stl-folder-input')?.addEventListener('change', () => uploadStlFiles(el('stl-folder-input').files));
