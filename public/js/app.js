@@ -290,13 +290,21 @@ async function viewJob(id) {
           <div class="card">
             <h2>Fichiers STL</h2>
             ${j.files.length ? `<ul class="file-list" id="file-list">
-              ${j.files.map(f => `<li id="fi-${f.id}">
+              ${j.files.map(f => {
+                const rp    = f.relative_path || f.filename;
+                const slash = rp.lastIndexOf('/');
+                const fname = slash >= 0 ? rp.slice(slash + 1) : rp;
+                const fdir  = slash >= 0 ? rp.slice(0, slash)  : '';
+                return `<li id="fi-${f.id}">
                 ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" style="margin-right:6px">` : ''}
                 <button class="btn btn-sm btn-ghost" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁 Voir</button>
-                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.relative_path || f.filename)}">${esc(f.relative_path || f.filename)}</span>
-                <span style="color:var(--muted)">${formatBytes(f.size_bytes)}</span>
+                <span style="flex:1;overflow:hidden;min-width:0" title="${esc(rp)}">
+                  <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(fname)}</span>
+                  ${fdir ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)">${esc(fdir)}</span>` : ''}
+                </span>
+                <span style="color:var(--muted);white-space:nowrap">${formatBytes(f.size_bytes)}</span>
                 ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
-              </li>`).join('')}
+              </li>`;}).join('')}
             </ul>` : '<div class="empty" style="padding:16px">Aucun fichier</div>'}
             <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <input type="file" id="stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
@@ -403,7 +411,11 @@ async function viewJob(id) {
       const fd = new FormData();
       for (let i = 0; i < fileList.length; i++) {
         fd.append('stl[]', fileList[i]);
-        fd.append('stl_paths[]', fileList[i].webkitRelativePath || fileList[i].name);
+        // webkitRelativePath inclut le nom du dossier racine sélectionné comme premier segment — on le supprime
+        const rp  = fileList[i].webkitRelativePath || fileList[i].name;
+        const idx = rp.indexOf('/');
+        const stlPath = (fileList[i].webkitRelativePath && idx >= 0) ? rp.slice(idx + 1) : rp;
+        fd.append('stl_paths[]', stlPath);
       }
 
       statusEl.textContent = '';

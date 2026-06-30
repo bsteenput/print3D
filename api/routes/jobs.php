@@ -54,9 +54,9 @@ if ($method === 'GET' && $id !== null && $sub === null) {
     $files = $pdo->prepare('SELECT id, filename, relative_path, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
     $files->execute([$id]);
     $job['files'] = array_map(function ($f) use ($id) {
-        // chemin servi = tout ce qui suit "job_{id}/" dans le path stocké (préserve les sous-dossiers)
         $served = preg_replace('#^job_' . $id . '/#', '', $f['path']);
-        $f['url'] = '/api/files/' . $id . '/' . $served;
+        // Encoder chaque segment pour que les espaces/caractères spéciaux soient valides dans l'URL
+        $f['url'] = '/api/files/' . $id . '/' . implode('/', array_map('rawurlencode', explode('/', $served)));
         return $f;
     }, $files->fetchAll());
 

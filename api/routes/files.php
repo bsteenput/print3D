@@ -9,7 +9,8 @@ if ($method !== 'GET') json_err('Méthode non supportée', 405);
 $job_id    = (int)($parts[1] ?? 0);
 // Le fichier peut être dans un sous-dossier (upload de dossier complet) : on rejoint tous les segments restants,
 // chacun passé par basename() pour neutraliser toute traversée de chemin (../).
-$segments = array_map('basename', array_slice($parts, 2));
+// Décoder chaque segment (%20 → espace, etc.) puis basename() contre les traversées de chemin
+$segments = array_map(fn($s) => basename(rawurldecode($s)), array_slice($parts, 2));
 $filename = end($segments) ?: '';
 $relpath  = implode('/', $segments);
 

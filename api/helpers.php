@@ -183,11 +183,13 @@ function handle_stl_upload(int $job_id): array {
             );
             $rel = $sub_dir !== '' ? "job_{$job_id}/{$sub_dir}/{$filename}" : "job_{$job_id}/{$filename}";
             $stmt->execute([$job_id, $name, $rel_path, $rel, $files['size'][$i]]);
+            $raw_url_path = ltrim(($sub_dir !== '' ? $sub_dir . '/' : '') . $filename, '/');
+            $encoded_url  = implode('/', array_map('rawurlencode', explode('/', $raw_url_path)));
             $saved[] = [
                 'id'            => (int)$pdo->lastInsertId(),
                 'filename'      => $name,
                 'relative_path' => $rel_path,
-                'url'           => '/api/files/' . $job_id . '/' . ltrim(($sub_dir !== '' ? $sub_dir . '/' : '') . $filename, '/'),
+                'url'           => '/api/files/' . $job_id . '/' . $encoded_url,
             ];
         }
     }
