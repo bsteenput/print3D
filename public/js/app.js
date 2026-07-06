@@ -298,6 +298,7 @@ async function viewJob(id) {
                 return `<li id="fi-${f.id}">
                 ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" style="margin-right:6px">` : ''}
                 <button class="btn btn-sm btn-ghost" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁 Voir</button>
+                <button class="btn btn-sm btn-ghost" onclick="downloadFile('${esc(f.url)}','${esc(f.filename)}')" title="Télécharger">⬇</button>
                 <span style="flex:1;overflow:hidden;min-width:0" title="${esc(rp)}">
                   <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(fname)}</span>
                   ${fdir ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)">${esc(fdir)}</span>` : ''}
@@ -527,6 +528,25 @@ async function viewJob(id) {
     }
   } catch(e) { html('view', errBox(e)); }
 }
+
+// Téléchargement via fetch + blob : la route /api/files exige le header Authorization,
+// donc un simple lien <a href> ne fonctionnerait pas.
+window.downloadFile = async (url, filename) => {
+  try {
+    const hdrs = {};
+    if (token()) hdrs['Authorization'] = 'Bearer ' + token();
+    const res = await fetch(url, { headers: hdrs });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { alert('Erreur téléchargement : ' + e.message); }
+};
 
 window.deleteFile = async (jobId, fileId) => {
   if (!confirm('Supprimer ce fichier ?')) return;
