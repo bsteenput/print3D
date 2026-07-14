@@ -104,6 +104,7 @@ function route() {
   const views = {
     dashboard: viewDashboard,
     jobs:      () => param ? viewJob(param) : viewJobs(),
+    queue:     viewQueue,
     clients:   () => param ? viewClient(param) : viewClients(),
     printers:  viewPrinters,
     filaments: viewFilaments,
@@ -211,6 +212,75 @@ async function viewJobs() {
   } catch(e) { html('view', errBox(e)); }
 }
 
+// ── FILE D'ATTENTE ───────────────────────────────────────────
+async function viewQueue() {
+  html('view', '<div class="empty">Chargement…</div>');
+  try {
+    const q = await get('/jobs/queue');
+    html('view', `
+      <div class="page-title">File d'attente</div>
+      <p style="color:var(--muted);font-size:13px;margin-top:-8px">Glissez-déposez les jobs pour changer l'ordre d'impression sur chaque imprimante. Les estimations se basent sur la durée saisie de chaque job.</p>
+      ${q.printers.map(p => `
+        <div class="card">
+          <h2>🖨 ${esc(p.name)}</h2>
+          ${p.jobs.length ? `<ul class="queue-list" id="queue-${p.id}" data-printer="${p.id}">
+            ${p.jobs.map(j => `<li draggable="true" data-id="${j.id}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;border:1px solid var(--border);border-radius:8px;cursor:grab;background:var(--card,transparent)">
+              <span style="cursor:grab;color:var(--muted)">⠿</span>
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                <a href="#jobs/${j.id}" onclick="event.stopPropagation()"><strong>${esc(j.ref)}</strong> — ${esc(j.title)}</a>
+              </span>
+              ${badge(j.status)}
+              <span style="font-size:12px;color:var(--muted);white-space:nowrap">${j.print_hours ? j.print_hours+'h' : 'durée ?'}</span>
+              <span style="font-size:12px;color:var(--muted);white-space:nowrap">${j.status === 'printing' ? 'fin ~ ' + fmt(j.estimated_completion) : 'début ~ ' + fmt(j.estimated_start)}</span>
+            </li>`).join('')}
+          </ul>` : '<div class="empty" style="padding:16px">Aucun job planifié</div>'}
+        </div>
+      `).join('')}
+      ${q.unassigned.length ? `
+      <div class="card">
+        <h2>Sans imprimante assignée</h2>
+        <p style="color:var(--muted);font-size:13px">Assignez une imprimante à ces jobs (via "Modifier") pour les planifier.</p>
+        <ul class="queue-list">
+          ${q.unassigned.map(j => `<li style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;border:1px solid var(--border);border-radius:8px">
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              <a href="#jobs/${j.id}"><strong>${esc(j.ref)}</strong> — ${esc(j.title)}</a>
+            </span>
+            ${badge(j.status)}
+          </li>`).join('')}
+        </ul>
+      </div>` : ''}
+    `);
+    q.printers.forEach(p => {
+      const ul = el('queue-' + p.id);
+      if (ul) setupQueueDnd(ul);
+    });
+  } catch(e) { html('view', errBox(e)); }
+}
+
+function setupQueueDnd(ul) {
+  let dragEl = null;
+  ul.querySelectorAll('li').forEach(li => {
+    li.addEventListener('dragstart', () => { dragEl = li; li.style.opacity = '0.4'; });
+    li.addEventListener('dragend', () => { li.style.opacity = ''; dragEl = null; });
+  });
+  ul.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!dragEl) return;
+    const after = [...ul.querySelectorAll('li')].find(li => {
+      if (li === dragEl) return false;
+      const box = li.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
+    });
+    if (after) ul.insertBefore(dragEl, after);
+    else ul.appendChild(dragEl);
+  });
+  ul.addEventListener('drop', async e => {
+    e.preventDefault();
+    const order = [...ul.querySelectorAll('li')].map(li => +li.dataset.id);
+    try { await patch('/jobs/reorder', { order }); } catch(err) { alert(err.message); viewQueue(); }
+  });
+}
+
 // ── JOB DETAIL ────────────────────────────────────────────────
 async function viewJob(id) {
   html('view', '<div class="empty">Chargement…</div>');
@@ -251,6 +321,7 @@ async function viewJob(id) {
                 : `<tr><td style="color:var(--muted)">Grammes</td><td>${j.grams_used ? j.grams_used+'g' : '—'}</td></tr>`}
               <tr><td style="color:var(--muted)">Durée</td><td>${j.print_hours ? j.print_hours+'h' : '—'}</td></tr>
               <tr><td style="color:var(--muted)">ETA</td><td>${fmt(j.eta)}</td></tr>
+              <tr><td style="color:var(--muted)">Prix matière</td><td>${j.material_price ? money(j.material_price) + (j.print_type === 'resin' ? '/L' : '/kg') + ' <span style="color:var(--muted);font-size:12px">(figé à la création)</span>' : '—'}</td></tr>
               <tr><td style="color:var(--muted)">Prix auto</td><td>${j.price_auto ? money(j.price_auto) : '—'}</td></tr>
               <tr><td style="color:var(--muted)">Prix final</td><td><strong>${j.price_final ? money(j.price_final) : '—'}</strong></td></tr>
               ${isAdmin ? `<tr><td style="color:var(--muted)">Paiement</td><td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">

@@ -6,6 +6,93 @@ $pdo = db();
 
 $STATUSES = ['draft','queued','printing','done','picked_up','cancelled'];
 
+// ── GET /api/jobs/queue ──────────────────────────────────────
+//  File d'attente groupée par imprimante, avec estimation de
+//  début/fin cumulée à partir de la durée (print_hours) des jobs.
+if ($method === 'GET' && ($parts[1] ?? null) === 'queue') {
+    require_admin();
+
+    $printers = $pdo->query('SELECT id, name FROM printers WHERE active = 1 ORDER BY name')->fetchAll();
+
+    $jobs = $pdo->query(
+        "SELECT id, ref, title, status, printer_id, print_hours, started_at, queue_order
+         FROM jobs
+         WHERE status IN ('queued','printing')
+         ORDER BY printer_id IS NULL, printer_id, queue_order, created_at"
+    )->fetchAll();
+
+    $by_printer = [];
+    $unassigned = [];
+    foreach ($jobs as $j) {
+        if ($j['printer_id']) $by_printer[$j['printer_id']][] = $j;
+        else $unassigned[] = $j;
+    }
+
+    $now = new DateTime();
+    $result = [];
+    foreach ($printers as $p) {
+        $cursor = clone $now;
+        $out = [];
+        foreach (($by_printer[$p['id']] ?? []) as $j) {
+            $hours = $j['print_hours'] !== null ? (float)$j['print_hours'] : null;
+
+            if ($j['status'] === 'printing' && $j['started_at'] && $hours !== null) {
+                $started        = new DateTime($j['started_at']);
+                $elapsed_hours  = ($now->getTimestamp() - $started->getTimestamp()) / 3600;
+                $remaining      = max(0, $hours - $elapsed_hours);
+                $start          = clone $now;
+                $end            = (clone $now)->modify('+' . round($remaining * 3600) . ' seconds');
+                $cursor         = clone $end;
+            } elseif ($hours !== null) {
+                $start  = clone $cursor;
+                $end    = (clone $cursor)->modify('+' . round($hours * 3600) . ' seconds');
+                $cursor = clone $end;
+            } else {
+                $start = clone $cursor;
+                $end   = null; // durée inconnue, impossible d'estimer plus loin
+            }
+
+            $out[] = [
+                'id' => (int)$j['id'], 'ref' => $j['ref'], 'title' => $j['title'],
+                'status' => $j['status'], 'print_hours' => $j['print_hours'],
+                'queue_order' => (int)$j['queue_order'],
+                'estimated_start'      => $start->format('Y-m-d H:i:s'),
+                'estimated_completion' => $end ? $end->format('Y-m-d H:i:s') : null,
+            ];
+        }
+        $result[] = ['id' => (int)$p['id'], 'name' => $p['name'], 'jobs' => $out];
+    }
+
+    json_ok([
+        'printers'   => $result,
+        'unassigned' => array_map(fn($j) => [
+            'id' => (int)$j['id'], 'ref' => $j['ref'], 'title' => $j['title'],
+            'status' => $j['status'], 'print_hours' => $j['print_hours'],
+            'queue_order' => (int)$j['queue_order'],
+        ], $unassigned),
+    ]);
+}
+
+// ── PATCH /api/jobs/reorder ──────────────────────────────────
+//  body: { order: [jobId, jobId, ...] } → renumérote queue_order
+//  selon la position dans la liste fournie (typiquement les jobs
+//  d'une même imprimante, réordonnés par glisser-déposer).
+if ($method === 'PATCH' && ($parts[1] ?? null) === 'reorder') {
+    require_admin();
+    $b = body();
+    $order = $b['order'] ?? null;
+    if (!is_array($order) || !$order) json_err('Liste order requise');
+
+    $pdo->beginTransaction();
+    $stmt = $pdo->prepare('UPDATE jobs SET queue_order = ? WHERE id = ?');
+    foreach (array_values($order) as $i => $job_id) {
+        $stmt->execute([$i + 1, (int)$job_id]);
+    }
+    $pdo->commit();
+
+    json_ok(['reordered' => true]);
+}
+
 // ── GET /api/jobs ─────────────────────────────────────────────
 if ($method === 'GET' && $id === null) {
     $where  = $is_admin ? '' : 'WHERE j.client_id = ' . (int)$user['id'];
@@ -98,22 +185,35 @@ if ($method === 'POST' && $id === null && $sub === null) {
     $ref        = next_job_ref();
     $print_type = ($b['print_type'] ?? '') === 'resin' ? 'resin' : 'fdm';
 
+    // Snapshot du prix matière au moment de la création : le prix reste figé
+    // sur le job même si le prix de la bobine/résine change plus tard.
+    $material_price = null;
+    $fil_id = !empty($b['filament_id']) ? (int)$b['filament_id'] : null;
+    if ($fil_id) {
+        $col = $print_type === 'resin' ? 'price_per_litre' : 'price_per_kg';
+        $stmt = $pdo->prepare("SELECT $col FROM filaments WHERE id = ?");
+        $stmt->execute([$fil_id]);
+        $price = $stmt->fetchColumn();
+        $material_price = $price !== false ? (float)$price : null;
+    }
+
     $stmt = $pdo->prepare(
         'INSERT INTO jobs (ref, client_id, printer_id, filament_id, title, description,
-                           quantity, print_type, status, hourly_rate, notes_admin, tracking_token, queue_order)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,
+                           quantity, print_type, status, hourly_rate, material_price, notes_admin, tracking_token, queue_order)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,
                  (SELECT COALESCE(MAX(queue_order),0)+1 FROM jobs j2))'
     );
     $stmt->execute([
         $ref, $client_id,
         !empty($b['printer_id'])  ? (int)$b['printer_id']  : null,
-        !empty($b['filament_id']) ? (int)$b['filament_id'] : null,
+        $fil_id,
         $b['title'],
         $b['description'] ?? null,
         (int)($b['quantity'] ?? 1),
         $print_type,
         $is_admin ? ($b['status'] ?? 'queued') : 'queued',
         $hourly,
+        $material_price,
         $is_admin ? ($b['notes_admin'] ?? null) : null,
         generate_tracking_token(),
     ]);
@@ -140,23 +240,27 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
     $print_type = ($b['print_type'] ?? $job['print_type'] ?? 'fdm') === 'resin' ? 'resin' : 'fdm';
     $hours      = isset($b['print_hours']) ? (float)$b['print_hours'] : (float)$job['print_hours'];
 
+    // Le prix matière est figé au moment de la création (snapshot). On ne va
+    // rechercher le prix courant de la bobine/résine que si le matériau change
+    // sur ce job, ou si aucun snapshot n'existe encore (anciens jobs pré-migration).
+    $fil_id          = (int)($b['filament_id'] ?? $job['filament_id']);
+    $filament_changed = isset($b['filament_id']) && (int)$b['filament_id'] !== (int)$job['filament_id'];
+    $material_price  = $job['material_price'];
+    if ($fil_id && ($filament_changed || $material_price === null)) {
+        $col = $print_type === 'resin' ? 'price_per_litre' : 'price_per_kg';
+        $price = $pdo->query("SELECT $col FROM filaments WHERE id=$fil_id")->fetchColumn();
+        $material_price = $price !== false ? (float)$price : null;
+    }
+
     if ($print_type === 'resin') {
         $ml = isset($b['ml_used']) ? (float)$b['ml_used'] : (float)$job['ml_used'];
-        if ($ml > 0 && $hours > 0) {
-            $fil_id = (int)($b['filament_id'] ?? $job['filament_id']);
-            if ($fil_id) {
-                $ppl = (float)$pdo->query("SELECT price_per_litre FROM filaments WHERE id=$fil_id")->fetchColumn();
-                $price_auto = calc_price_auto($ml, $hours, $ppl, (float)$job['hourly_rate']);
-            }
+        if ($ml > 0 && $hours > 0 && $material_price !== null) {
+            $price_auto = calc_price_auto($ml, $hours, $material_price, (float)$job['hourly_rate']);
         }
     } else {
         $grams = isset($b['grams_used']) ? (float)$b['grams_used'] : (float)$job['grams_used'];
-        if ($grams > 0 && $hours > 0) {
-            $fil_id = (int)($b['filament_id'] ?? $job['filament_id']);
-            if ($fil_id) {
-                $ppkg = (float)$pdo->query("SELECT price_per_kg FROM filaments WHERE id=$fil_id")->fetchColumn();
-                $price_auto = calc_price_auto($grams, $hours, $ppkg, (float)$job['hourly_rate']);
-            }
+        if ($grams > 0 && $hours > 0 && $material_price !== null) {
+            $price_auto = calc_price_auto($grams, $hours, $material_price, (float)$job['hourly_rate']);
         }
     }
 
@@ -168,7 +272,7 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
             title=?, description=?, quantity=?, print_type=?, printer_id=?, filament_id=?,
             grams_used=?, ml_used=?, print_hours=?, layer_current=?, layer_total=?,
             eta=?, started_at=?, finished_at=?, picked_up_at=?,
-            price_auto=?, price_final=?, price_adjusted=?,
+            price_auto=?, price_final=?, price_adjusted=?, material_price=?,
             notes_admin=?, queue_order=?
          WHERE id=?'
     );
@@ -191,6 +295,7 @@ if ($method === 'PUT' && $id !== null && $sub === null) {
         $price_auto,
         $price_final,
         $price_adjusted,
+        $material_price,
         $b['notes_admin']   ?? $job['notes_admin'],
         (int)($b['queue_order'] ?? $job['queue_order']),
         $id,

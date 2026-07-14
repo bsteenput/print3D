@@ -31,6 +31,8 @@ match(true) {
     $resource === 'auth' && $parts[1] === 'reset'    => require __DIR__ . '/routes/auth.php',
 
     // ── Jobs ─────────────────────────────────────────────────
+    $resource === 'jobs' && ($parts[1] ?? null) === 'queue'   => require __DIR__ . '/routes/jobs.php',
+    $resource === 'jobs' && ($parts[1] ?? null) === 'reorder' => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $id === null              => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $id !== null && $sub === null
                                                       => require __DIR__ . '/routes/jobs.php',
