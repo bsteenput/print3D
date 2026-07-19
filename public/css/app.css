@@ -54,6 +54,7 @@
 }
 
 /* Badges : adapter les pastels au fond sombre */
+[data-theme="dark"] .badge-quote     { background: #4a3a0a; color: #fde68a; }
 [data-theme="dark"] .badge-draft     { background: #333; color: #ccc; }
 [data-theme="dark"] .badge-queued    { background: #1a3252; color: #93c5fd; }
 [data-theme="dark"] .badge-printing  { color: #111; }
@@ -348,6 +349,7 @@ textarea { min-height: 80px; resize: vertical; }
   letter-spacing: .07em;
   border: var(--bw) solid var(--border);
 }
+.badge-quote     { background: #fde68a; }
 .badge-draft     { background: #e5e5e5; }
 .badge-queued    { background: #bfdbfe; }
 .badge-printing  { background: var(--accent); }

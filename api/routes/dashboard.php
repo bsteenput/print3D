@@ -38,6 +38,7 @@ $low_stock = $pdo->query(
 
 json_ok([
     'counts' => [
+        'quote'     => $status_map['quote']     ?? 0,
         'queued'    => $status_map['queued']    ?? 0,
         'printing'  => $status_map['printing']  ?? 0,
         'done'      => $status_map['done']       ?? 0,

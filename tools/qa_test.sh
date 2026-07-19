@@ -54,6 +54,8 @@ cleanup() {
   for id in "${CLEANUP_CLIENT_IDS[@]:-}"; do
     [ -n "$id" ] && curl -s "$BASE/clients/$id" -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" >/dev/null
   done
+  # Purge du rate limiting du portail devis, sinon les runs répétés finissent en 429
+  docker compose exec -T db mysql -uprint3d_user -pprint3d_pass print3d -e "DELETE FROM quote_attempts" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -188,6 +190,8 @@ check "public gallery contains job" "$(echo "$PUBGAL" | python3 -c "import sys,j
 echo "=== FICHIERS STL — upload + contrôle d'accès ==="
 TMP_STL=$(mktemp /tmp/qa_XXXX.stl)
 echo "qa test content" > "$TMP_STL"
+# Sous Git Bash (Windows), curl est un binaire natif qui ne comprend pas /tmp — convertir le chemin
+command -v cygpath >/dev/null 2>&1 && TMP_STL=$(cygpath -m "$TMP_STL")
 UPLOAD=$(curl -s "$BASE/jobs/$JOB_ID/files" -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -F "stl[]=@$TMP_STL;filename=qa.stl")
 rm -f "$TMP_STL"
 check "file upload ok" "$(echo "$UPLOAD" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['ok'] and len(d['data'])>0)" 2>/dev/null)" "True"
@@ -211,6 +215,39 @@ REORDER_ID2=$(curl -s "$BASE/jobs" -X POST -H "Authorization: Bearer $ADMIN_TOKE
   -d "{\"title\":\"QA Reorder 2\",\"client_id\":$CLIENT_ID,\"printer_id\":$PRINTER_ID,\"print_type\":\"fdm\",\"quantity\":1}" | jget "['data']['id']")
 CLEANUP_JOB_IDS+=("$REORDER_ID2")
 check "reorder endpoint ok" "$(curl -s "$BASE/jobs/reorder" -X PATCH -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d "{\"order\":[$REORDER_ID2,$GJOB_ID]}" | jget "['ok']")" "True"
+
+echo "=== PORTAIL DEVIS (public) ==="
+QMAT=$(curl -s "$BASE/quote/materials")
+check "quote materials ok (sans auth)" "$(echo "$QMAT" | jget "['ok']")" "True"
+check "quote materials ne fuite pas les prix" "$(echo "$QMAT" | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(all('price_per_kg' not in m and 'price_per_litre' not in m and 'stock_grams' not in m for m in d))" 2>/dev/null)" "True"
+
+QPOST=$(curl -s "$BASE/quote" -X POST -F "name=QA Quote" -F "email=qa_quote_$RUN_ID@example.com" \
+  -F "title=Demande QA" -F "description=Test portail" -F "quantity=2" -F "filament_id=$FIL_ID")
+QREF=$(echo "$QPOST" | jget "['data']['ref']")
+QTOKEN=$(echo "$QPOST" | jget "['data']['tracking_token']")
+check "quote créée (public, sans auth)" "$(echo "$QPOST" | jget "['ok']")" "True"
+QJOB_ID=$(curl -s "$BASE/jobs?status=quote" -H "Authorization: Bearer $ADMIN_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(next((j['id'] for j in d if j['ref']=='$QREF'),''))" 2>/dev/null)
+CLEANUP_JOB_IDS+=("$QJOB_ID")
+QJOB=$(curl -s "$BASE/jobs/$QJOB_ID" -H "Authorization: Bearer $ADMIN_TOKEN")
+QCLIENT_ID=$(echo "$QJOB" | jget "['data']['client_id']")
+CLEANUP_CLIENT_IDS+=("$QCLIENT_ID")
+check "quote job en statut quote" "$(echo "$QJOB" | jget "['data']['status']")" "quote"
+check "quote snapshot prix matière" "$(echo "$QJOB" | jget "['data']['material_price']")" "20.00"
+check "quote suivi public 200" "$(curl -s -o /dev/null -w "%{http_code}" "$BASE/track/$QTOKEN")" "200"
+
+QPOST2=$(curl -s "$BASE/quote" -X POST -F "name=Autre Nom" -F "email=QA_QUOTE_$RUN_ID@example.com" -F "title=Seconde demande")
+QREF2=$(echo "$QPOST2" | jget "['data']['ref']")
+QJOB_ID2=$(curl -s "$BASE/jobs?status=quote" -H "Authorization: Bearer $ADMIN_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print(next((j['id'] for j in d if j['ref']=='$QREF2'),''))" 2>/dev/null)
+CLEANUP_JOB_IDS+=("$QJOB_ID2")
+QCLIENT_ID2=$(curl -s "$BASE/jobs/$QJOB_ID2" -H "Authorization: Bearer $ADMIN_TOKEN" | jget "['data']['client_id']")
+check "email existant réutilisé (pas de doublon client)" "$QCLIENT_ID2" "$QCLIENT_ID"
+
+check "quote sans titre rejetée" "$(curl -s "$BASE/quote" -X POST -F "name=X" -F "email=x_$RUN_ID@example.com" | jget "['ok']")" "False"
+check "quote email invalide rejetée" "$(curl -s "$BASE/quote" -X POST -F "name=X" -F "email=pas-un-email" -F "title=t" | jget "['ok']")" "False"
+QHONEY=$(curl -s "$BASE/quote" -X POST -F "name=Bot" -F "email=bot_$RUN_ID@spam.com" -F "title=spam" -F "website=http://spam.com")
+check "honeypot répond ok sans créer de ref" "$(echo "$QHONEY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['ok'] and 'ref' not in d['data'])" 2>/dev/null)" "True"
+
+check "quote -> queued (acceptation devis)" "$(curl -s "$BASE/jobs/$QJOB_ID/status" -X PATCH -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{"status":"queued"}' | jget "['ok']")" "True"
 
 echo "=== DASHBOARD / STATS ==="
 check "dashboard ok" "$(curl -s "$BASE/dashboard" -H "Authorization: Bearer $ADMIN_TOKEN" | jget "['ok']")" "True"

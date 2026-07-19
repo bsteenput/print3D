@@ -4,7 +4,7 @@ $user = require_auth();
 $is_admin = $user['role'] === 'admin';
 $pdo = db();
 
-$STATUSES = ['draft','queued','printing','done','picked_up','cancelled'];
+$STATUSES = ['quote','draft','queued','printing','done','picked_up','cancelled'];
 
 // ── GET /api/jobs/queue ──────────────────────────────────────
 //  File d'attente groupée par imprimante, avec estimation de

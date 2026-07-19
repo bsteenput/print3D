@@ -269,6 +269,7 @@ function notify_client_status(int $job_id, string $status): void {
     if (!$row || !$row['email']) return;
 
     $labels = [
+        'quote'     => 'Devis en cours d\'étude',
         'queued'    => 'En file d\'attente',
         'printing'  => 'En cours d\'impression',
         'done'      => 'Prête à récupérer !',

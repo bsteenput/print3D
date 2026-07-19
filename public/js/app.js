@@ -36,7 +36,7 @@ const fmt   = d   => d ? new Date(d).toLocaleString('fr-BE', { dateStyle:'short'
 const fmtD  = d   => d ? new Date(d).toLocaleDateString('fr-BE') : '—';
 
 const STATUS_LABELS = {
-  draft:'Brouillon', queued:'En attente', printing:'En cours',
+  quote:'Devis', draft:'Brouillon', queued:'En attente', printing:'En cours',
   done:'Terminé', picked_up:'Récupéré', cancelled:'Annulé'
 };
 const badge = s => `<span class="badge badge-${s}">${STATUS_LABELS[s] ?? s}</span>`;
@@ -123,6 +123,7 @@ async function viewDashboard() {
     html('view', `
       <div class="page-title">Dashboard</div>
       <div class="stat-grid">
+        ${d.counts.quote ? `<div class="stat-card" style="cursor:pointer" onclick="location.hash='#jobs'"><div class="val" style="color:#f59e0b">${d.counts.quote}</div><div class="lbl">Devis à traiter</div></div>` : ''}
         <div class="stat-card"><div class="val">${d.counts.queued}</div><div class="lbl">En attente</div></div>
         <div class="stat-card"><div class="val">${d.counts.printing}</div><div class="lbl">En cours</div></div>
         <div class="stat-card"><div class="val">${d.counts.done}</div><div class="lbl">Terminés</div></div>
@@ -926,7 +927,7 @@ window.toggleEditJobType = () => {
 
 // ── MODAL: change status ──────────────────────────────────────
 function modalStatus(j) {
-  const statuses = ['draft','queued','printing','done','picked_up','cancelled'];
+  const statuses = ['quote','draft','queued','printing','done','picked_up','cancelled'];
   openModal('Changer le statut', `
     <div class="form-group"><label>Nouveau statut</label>
       <select id="m-status">
@@ -1612,14 +1613,14 @@ async function showResetPage(resetToken) {
 // ── Page de suivi public (/track/{token}) ────────────────────
 async function showTrackingPage(trackingToken) {
   const STATUS_LABELS = {
-    queued:'En file d\'attente', printing:'En cours d\'impression',
+    quote:'Devis en cours d\'étude', queued:'En file d\'attente', printing:'En cours d\'impression',
     done:'Prêt à récupérer', picked_up:'Récupéré', cancelled:'Annulé'
   };
   const STATUS_COLORS = {
-    queued:'var(--muted)', printing:'var(--primary)', done:'#22c55e',
+    quote:'#f59e0b', queued:'var(--muted)', printing:'var(--primary)', done:'#22c55e',
     picked_up:'var(--primary)', cancelled:'#ef4444'
   };
-  const STATUS_PCT = { queued:10, printing:60, done:100, picked_up:100, cancelled:0 };
+  const STATUS_PCT = { quote:5, queued:10, printing:60, done:100, picked_up:100, cancelled:0 };
 
   document.body.innerHTML = `<div style="max-width:560px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif">
     <div style="font-size:22px;font-weight:700;margin-bottom:24px">🖨 Print3D — Suivi de commande</div>
@@ -1673,6 +1674,162 @@ async function showTrackingPage(trackingToken) {
   }
 }
 
+// ── Portail public de devis (/devis) ─────────────────────────
+async function showQuotePage() {
+  document.body.innerHTML = `<div style="max-width:640px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif">
+    <div style="font-size:22px;font-weight:700;margin-bottom:6px">🖨 Print3D — Demande de devis</div>
+    <p style="color:var(--muted);margin-bottom:24px;font-size:14px">
+      Décris ce que tu veux faire imprimer, joins tes fichiers 3D si tu les as,
+      et tu recevras un prix par email avec un lien pour suivre l'avancement.
+    </p>
+    <div id="q-form" class="card" style="border:2px solid #000;border-radius:4px;padding:20px">
+      <div id="q-err" class="alert alert-err" style="display:none;margin-bottom:12px"></div>
+      <div class="form-group"><label>Ton nom *</label>
+        <input id="q-name" maxlength="100" placeholder="Prénom Nom"></div>
+      <div class="form-group"><label>Ton email *</label>
+        <input id="q-email" type="email" maxlength="180" placeholder="toi@exemple.com"></div>
+      <div class="form-group"><label>Que faut-il imprimer ? *</label>
+        <input id="q-title" maxlength="200" placeholder="Ex : figurine, pièce de rechange, support…"></div>
+      <div class="form-group"><label>Détails (dimensions, couleur, usage…)</label>
+        <textarea id="q-desc" rows="4" placeholder="Tout ce qui peut aider à faire un devis précis"></textarea></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:120px"><label>Quantité</label>
+          <input id="q-qty" type="number" min="1" max="999" value="1"></div>
+        <div class="form-group" style="flex:2;min-width:200px"><label>Matériau souhaité</label>
+          <select id="q-material"><option value="">Pas de préférence</option></select></div>
+      </div>
+      <div class="form-group"><label>Fichiers 3D (STL, 3MF, OBJ — optionnel)</label>
+        <input id="q-files" type="file" accept=".stl,.3mf,.obj" multiple>
+        <div id="q-files-info" style="font-size:12px;color:var(--muted);margin-top:4px"></div></div>
+      <input name="website" id="q-website" tabindex="-1" autocomplete="off"
+             style="position:absolute;left:-9999px" aria-hidden="true">
+      <div id="q-progress-wrap" style="display:none;margin-bottom:12px">
+        <div style="border:1px solid var(--border);height:14px;background:var(--surface,#eee)">
+          <div id="q-progress-bar" style="background:var(--accent,#f59e0b);height:100%;width:0%;transition:width .15s ease"></div>
+        </div>
+        <div id="q-progress-text" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" id="q-btn">Envoyer ma demande</button>
+    </div>
+  </div>`;
+
+  // Liste publique des matériaux actifs
+  try {
+    const res = await fetch('/api/quote/materials');
+    const json = await res.json();
+    if (json.ok && json.data.length) {
+      const sel = document.getElementById('q-material');
+      const groups = { fdm: [], resin: [] };
+      json.data.forEach(m => groups[m.print_type === 'resin' ? 'resin' : 'fdm'].push(m));
+      for (const [type, label] of [['fdm', 'Filament (FDM)'], ['resin', 'Résine']]) {
+        if (!groups[type].length) continue;
+        const og = document.createElement('optgroup');
+        og.label = label;
+        groups[type].forEach(m => {
+          const o = document.createElement('option');
+          o.value = m.id;
+          o.textContent = `${m.material} — ${m.color}`;
+          og.appendChild(o);
+        });
+        sel.appendChild(og);
+      }
+    }
+  } catch (e) { /* select reste sur "Pas de préférence" */ }
+
+  const filesInput = document.getElementById('q-files');
+  filesInput.addEventListener('change', () => {
+    const files = [...filesInput.files];
+    const total = files.reduce((s, f) => s + f.size, 0);
+    document.getElementById('q-files-info').textContent = files.length
+      ? `${files.length} fichier(s) — ${formatBytes(total)}` : '';
+  });
+
+  const showErr = (msg) => {
+    const e = document.getElementById('q-err');
+    e.textContent = msg;
+    e.style.display = 'block';
+    e.scrollIntoView({ block: 'nearest' });
+  };
+
+  document.getElementById('q-btn').addEventListener('click', () => {
+    const btn   = document.getElementById('q-btn');
+    const name  = document.getElementById('q-name').value.trim();
+    const email = document.getElementById('q-email').value.trim();
+    const title = document.getElementById('q-title').value.trim();
+    const files = [...filesInput.files];
+    document.getElementById('q-err').style.display = 'none';
+
+    if (!name)  return showErr('Ton nom est requis.');
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showErr('Email invalide.');
+    if (!title) return showErr('Décris ce que tu veux faire imprimer.');
+    if (files.length > 20) return showErr('Maximum 20 fichiers par demande.');
+    const POST_MAX = 1100 * 1024 * 1024;
+    const total = files.reduce((s, f) => s + f.size, 0);
+    if (total > POST_MAX) return showErr(`Fichiers trop lourds : ${formatBytes(total)} — limite ${formatBytes(POST_MAX)}.`);
+
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('email', email);
+    fd.append('title', title);
+    fd.append('description', document.getElementById('q-desc').value.trim());
+    fd.append('quantity', document.getElementById('q-qty').value || '1');
+    fd.append('filament_id', document.getElementById('q-material').value);
+    fd.append('website', document.getElementById('q-website').value);
+    files.forEach(f => fd.append('stl[]', f));
+
+    btn.disabled = true;
+    btn.textContent = 'Envoi en cours…';
+    const wrap = document.getElementById('q-progress-wrap');
+    const bar  = document.getElementById('q-progress-bar');
+    const txt  = document.getElementById('q-progress-text');
+    if (files.length) { wrap.style.display = 'block'; bar.style.width = '0%'; }
+
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      bar.style.width = pct + '%';
+      txt.textContent = `${formatBytes(e.loaded)} / ${formatBytes(e.total)} — ${pct}%`;
+    };
+    xhr.onload = () => {
+      wrap.style.display = 'none';
+      let json;
+      try { json = JSON.parse(xhr.responseText); }
+      catch { json = { ok: false, error: 'Erreur de réponse serveur' }; }
+      if (!json.ok) {
+        showErr(json.error || 'Erreur inconnue');
+        btn.disabled = false;
+        btn.textContent = 'Envoyer ma demande';
+        return;
+      }
+      const d = json.data;
+      document.getElementById('q-form').innerHTML = `
+        <div style="text-align:center;padding:12px 0">
+          <div style="font-size:40px;margin-bottom:12px">✅</div>
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px">Demande envoyée !</div>
+          ${d.ref ? `
+          <p style="color:var(--muted);font-size:14px;margin-bottom:16px">
+            Référence <strong>${esc(d.ref)}</strong>${d.files ? ` — ${d.files} fichier(s) reçu(s)` : ''}.<br>
+            Tu vas recevoir un email de confirmation, puis un prix.
+          </p>
+          <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
+            <a class="btn btn-primary" href="${esc(d.tracking_url)}">Suivre ma demande</a>
+            <button class="btn btn-ghost" onclick="navigator.clipboard.writeText('${esc(d.tracking_url)}').then(()=>this.textContent='✓ Copié !')">Copier le lien de suivi</button>
+          </div>` : `
+          <p style="color:var(--muted);font-size:14px">Merci, ta demande a bien été reçue.</p>`}
+        </div>`;
+    };
+    xhr.onerror = () => {
+      wrap.style.display = 'none';
+      showErr('Erreur réseau — réessaie.');
+      btn.disabled = false;
+      btn.textContent = 'Envoyer ma demande';
+    };
+    xhr.open('POST', '/api/quote');
+    xhr.send(fd);
+  });
+}
+
 window.genResetLink = async (clientId) => {
   const r = await post(`/clients/${clientId}/reset-token`, {});
   const link = r.link;
@@ -1712,6 +1869,8 @@ el('theme-toggle').addEventListener('click', () => {
 
   const trackMatch = location.pathname.match(/^\/track\/([a-f0-9]{32})$/i);
   if (trackMatch) { showTrackingPage(trackMatch[1]); return; }
+
+  if (location.pathname === '/devis') { showQuotePage(); return; }
 
   if (token()) {
     try {
