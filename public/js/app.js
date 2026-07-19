@@ -359,44 +359,47 @@ async function viewJob(id) {
         </div>
         <div>
           <div class="card">
-            <h2>Fichiers STL</h2>
+            <h2>Fichiers STL${j.files.length ? ` (${j.files.length})` : ''}</h2>
             ${j.files.length ? `<ul class="file-list" id="file-list">
               ${j.files.map(f => {
                 const rp    = f.relative_path || f.filename;
                 const slash = rp.lastIndexOf('/');
                 const fname = slash >= 0 ? rp.slice(slash + 1) : rp;
                 const fdir  = slash >= 0 ? rp.slice(0, slash)  : '';
+                const dot   = fname.lastIndexOf('.');
+                const ext   = dot > 0 ? fname.slice(dot + 1).slice(0, 4) : '?';
                 return `<li id="fi-${f.id}">
-                ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" style="margin-right:6px">` : ''}
-                <button class="btn btn-sm btn-ghost" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁 Voir</button>
-                <button class="btn btn-sm btn-ghost" onclick="downloadFile('${esc(f.url)}','${esc(f.filename)}')" title="Télécharger">⬇</button>
-                <span style="flex:1;overflow:hidden;min-width:0" title="${esc(rp)}">
-                  <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(fname)}</span>
-                  ${fdir ? `<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)">${esc(fdir)}</span>` : ''}
+                ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" title="Sélectionner">` : ''}
+                <span class="file-ext">${esc(ext)}</span>
+                <span class="file-name" title="${esc(rp)}">
+                  <span class="fn">${esc(fname)}</span>
+                  ${fdir ? `<span class="fd">📁 ${esc(fdir)}</span>` : ''}
                 </span>
-                <span style="color:var(--muted);white-space:nowrap">${formatBytes(f.size_bytes)}</span>
-                ${isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
+                <span class="file-size">${formatBytes(f.size_bytes)}</span>
+                <span class="file-actions">
+                  <button class="btn btn-sm btn-ghost btn-icon" title="Visualiser en 3D" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁</button>
+                  <button class="btn btn-sm btn-ghost btn-icon" title="Télécharger" onclick="downloadFile('${esc(f.url)}','${esc(f.filename)}')">⬇</button>
+                  ${isAdmin ? `<button class="btn btn-sm btn-danger btn-icon" title="Supprimer" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
+                </span>
               </li>`;}).join('')}
-            </ul>` : '<div class="empty" style="padding:16px">Aucun fichier</div>'}
-            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            </ul>` : '<div class="empty" style="padding:20px">Aucun fichier</div>'}
+            <div class="file-toolbar">
               <input type="file" id="stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
               <button class="btn btn-ghost btn-sm" onclick="el('stl-input').click()">+ Ajouter STL</button>
               ${isAdmin ? `<input type="file" id="stl-folder-input" multiple webkitdirectory style="display:none">
               <button class="btn btn-ghost btn-sm" onclick="el('stl-folder-input').click()">+ Ajouter un dossier</button>` : ''}
+              ${isAdmin && j.files.length ? `<button class="btn btn-sm btn-primary" id="bulk-create-items-btn" title="Crée un objet à imprimer pour chaque fichier coché">+ Créer les objets cochés</button>` : ''}
               <span id="upload-status" style="font-size:12px;color:var(--muted)"></span>
             </div>
-            <div id="upload-progress-wrap" style="display:none;margin-top:8px">
-              <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
-                <div id="upload-progress-bar" style="background:var(--primary,#6366f1);height:100%;width:0%;transition:width 0.15s ease"></div>
+            <div id="upload-progress-wrap" style="display:none;margin-top:10px">
+              <div style="border:var(--bw) solid var(--border);height:14px;background:var(--surface)">
+                <div id="upload-progress-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.15s ease"></div>
               </div>
               <div style="display:flex;justify-content:space-between;margin-top:4px">
                 <span id="upload-progress-text" style="font-size:11px;color:var(--muted)"></span>
                 <span id="upload-progress-pct"  style="font-size:11px;color:var(--muted)"></span>
               </div>
             </div>
-            ${isAdmin && j.files.length ? `<div style="margin-top:8px">
-              <button class="btn btn-sm btn-primary" id="bulk-create-items-btn">+ Créer un objet pour chaque fichier sélectionné</button>
-            </div>` : ''}
           </div>
           <div class="card">
             <h2>Photos du résultat
