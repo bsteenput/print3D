@@ -94,6 +94,7 @@ async function startApp() {
 // ── Router ────────────────────────────────────────────────────
 function route() {
   stopMonitor();
+  stopChatPolling();
   const hash = location.hash.replace('#', '') || 'dashboard';
   const [page, param] = hash.split('/');
 
@@ -476,12 +477,20 @@ async function viewJob(id) {
           </tr>`).join('')}
         </table></div>` : `<div class="empty" style="padding:16px">Aucun objet — ${isAdmin ? 'ajoutez les modèles à imprimer' : 'aucun objet renseigné pour ce job'}</div>`}
       </div>
+
+      ${chatCardHtml()}
     `);
 
     // index des items pour les modals
     window._jobItems = {};
     j.items.forEach(it => { window._jobItems[it.id] = it; });
     window._jobFiles = j.files;
+
+    wireChatCard({
+      fetchMessages: async () => (await get('/jobs/' + id)).messages,
+      sendMessage:   (message) => post(`/jobs/${id}/messages`, { message }),
+      selfRole:      isAdmin ? 'admin' : 'client',
+    });
 
     // STL upload (fichiers seuls ou dossier complet — webkitRelativePath préserve la structure)
     // isTemp : upload dans la zone "Fichiers de travail" (brouillons) plutôt que les fichiers finaux
@@ -1403,6 +1412,76 @@ function errBox(e) {
 
 // ── Monitor temps réel (Chitu V3) ────────────────────────────
 let _monitorInterval = null;
+let _chatPollInterval = null;
+
+function stopChatPolling() {
+  if (_chatPollInterval) { clearInterval(_chatPollInterval); _chatPollInterval = null; }
+}
+
+// ── Discussion (chat client ↔ admin) ─────────────────────────
+function chatThreadHtml(messages, selfRole) {
+  if (!messages || !messages.length) {
+    return '<div class="empty" style="padding:16px">Aucun message pour l\'instant</div>';
+  }
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    ${messages.map(m => {
+      const mine  = m.sender_role === selfRole;
+      const label = m.sender_role === 'admin' ? 'Print3D' : 'Client';
+      return `<div style="align-self:${mine ? 'flex-end' : 'flex-start'};max-width:80%">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:2px;text-align:${mine ? 'right' : 'left'}">${esc(label)} · ${esc(fmt(m.created_at))}</div>
+        <div style="border:var(--bw) solid var(--border);border-radius:4px;padding:8px 10px;background:${mine ? 'var(--accent)' : 'var(--surface)'};white-space:pre-wrap;word-break:break-word;font-size:14px">${esc(m.message)}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function chatCardHtml() {
+  return `<div class="card" style="margin-top:16px">
+    <h2>💬 Discussion</h2>
+    <div id="chat-thread"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <textarea id="chat-input" rows="2" placeholder="Écrire un message…"
+        style="flex:1;resize:vertical;padding:8px;border:var(--bw) solid var(--border);border-radius:4px;font-family:inherit;background:var(--surface);color:inherit"></textarea>
+      <button class="btn btn-primary" id="chat-send-btn">Envoyer</button>
+    </div>
+    <div id="chat-status" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+  </div>`;
+}
+
+// Branche l'envoi + le rafraîchissement périodique d'un fil de discussion.
+// fetchMessages() doit renvoyer le tableau de messages ; sendMessage(text) doit poster le message.
+function wireChatCard({ fetchMessages, sendMessage, selfRole }) {
+  stopChatPolling();
+
+  async function refresh() {
+    try {
+      const messages = await fetchMessages();
+      const threadEl = el('chat-thread');
+      if (threadEl) threadEl.innerHTML = chatThreadHtml(messages, selfRole);
+    } catch { /* échec silencieux — on retentera au prochain tick */ }
+  }
+
+  el('chat-send-btn')?.addEventListener('click', async () => {
+    const input = el('chat-input');
+    const value = input.value.trim();
+    if (!value) return;
+    const btn = el('chat-send-btn');
+    btn.disabled = true;
+    try {
+      await sendMessage(value);
+      input.value = '';
+      el('chat-status').textContent = '';
+      await refresh();
+    } catch (e) {
+      el('chat-status').textContent = 'Erreur : ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  refresh();
+  _chatPollInterval = setInterval(refresh, 10000);
+}
 
 function stopMonitor() {
   if (_monitorInterval) { clearInterval(_monitorInterval); _monitorInterval = null; }
@@ -1740,7 +1819,27 @@ async function showTrackingPage(trackingToken) {
           <div><strong>${esc(STATUS_LABELS[ev.status]||ev.status)}</strong>${ev.message?` — ${esc(ev.message)}`:''}</div>
         </div>`).join('')}
       </div>` : ''}
+      ${chatCardHtml()}
     `;
+
+    wireChatCard({
+      fetchMessages: async () => {
+        const r = await fetch(`/api/track/${encodeURIComponent(trackingToken)}`);
+        const jj = await r.json();
+        if (!jj.ok || !jj.data) throw new Error(jj.error || 'Erreur');
+        return jj.data.messages;
+      },
+      sendMessage: async (message) => {
+        const r = await fetch(`/api/track/${encodeURIComponent(trackingToken)}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        });
+        const jj = await r.json();
+        if (!jj.ok) throw new Error(jj.error || 'Erreur');
+      },
+      selfRole: 'client',
+    });
   } catch(e) {
     document.getElementById('track-content').innerHTML = `<div style="color:#ef4444">Erreur : ${esc(e.message)}</div>`;
   }

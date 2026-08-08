@@ -52,6 +52,7 @@ match(true) {
     $resource === 'jobs' && $sub === 'payment'        => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'gallery'        => require __DIR__ . '/routes/jobs.php',
     $resource === 'jobs' && $sub === 'gift'           => require __DIR__ . '/routes/jobs.php',
+    $resource === 'jobs' && $sub === 'messages'       => require __DIR__ . '/routes/jobs.php',
 
     // ── Galerie publique ──────────────────────────────────────
     $resource === 'gallery'                           => require __DIR__ . '/routes/gallery.php',

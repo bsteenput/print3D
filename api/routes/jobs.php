@@ -177,7 +177,36 @@ if ($method === 'GET' && $id !== null && $sub === null) {
     // Masquer le token de suivi aux clients
     if (!$is_admin) unset($job['tracking_token']);
 
+    $messages_stmt = $pdo->prepare('SELECT sender_role, message, created_at FROM job_messages WHERE job_id = ? ORDER BY created_at');
+    $messages_stmt->execute([$id]);
+    $job['messages'] = $messages_stmt->fetchAll();
+
     json_ok($job);
+}
+
+// ── POST /api/jobs/{id}/messages ──────────────────────────────
+if ($method === 'POST' && $id !== null && $sub === 'messages') {
+    $stmt = $pdo->prepare('SELECT client_id, ref, title FROM jobs WHERE id = ?');
+    $stmt->execute([$id]);
+    $job = $stmt->fetch();
+    if (!$job) json_err('Job introuvable', 404);
+    if (!$is_admin && (int)$job['client_id'] !== (int)$user['id']) json_err('Accès refusé', 403);
+
+    $b       = body();
+    $message = trim($b['message'] ?? '');
+    if ($message === '') json_err('Message requis');
+    if (mb_strlen($message) > 2000) json_err('Message trop long (2000 caractères max)');
+
+    $pdo->prepare('INSERT INTO job_messages (job_id, sender_role, message) VALUES (?, ?, ?)')
+        ->execute([$id, $is_admin ? 'admin' : 'client', $message]);
+
+    if (!$is_admin) {
+        notify_admin_whatsapp(
+            "💬 Nouveau message de {$job['ref']} ({$job['title']}) :\n" . mb_substr($message, 0, 300)
+        );
+    }
+
+    json_ok(['sent' => true], 201);
 }
 
 // ── POST /api/jobs ────────────────────────────────────────────
