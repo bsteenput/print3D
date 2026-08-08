@@ -487,16 +487,23 @@ async function viewJob(id) {
     // isTemp : upload dans la zone "Fichiers de travail" (brouillons) plutôt que les fichiers finaux
     function uploadStlFiles(fileList, isTemp = false) {
       if (!fileList.length) return;
+      // Doit rester sous upload_max_filesize / post_max_size (docker/Dockerfile) et MAX_FILE_SIZE (config)
+      const MAX_FILE  = 200 * 1024 * 1024;
+      const POST_MAX  = 210 * 1024 * 1024;
       const totalBytes = Array.from(fileList).reduce((s, f) => s + f.size, 0);
-      const POST_MAX = 1100 * 1024 * 1024;
       const statusEl  = el(isTemp ? 'temp-upload-status' : 'upload-status');
       const wrapEl    = el('upload-progress-wrap');
       const barEl     = el('upload-progress-bar');
       const textEl    = el('upload-progress-text');
       const pctEl     = el('upload-progress-pct');
 
+      const tooBig = Array.from(fileList).filter(f => f.size > MAX_FILE);
+      if (tooBig.length) {
+        statusEl.textContent = `Fichier(s) trop volumineux (max ${formatBytes(MAX_FILE)}) : ${tooBig.map(f => f.name).join(', ')}`;
+        return;
+      }
       if (totalBytes > POST_MAX) {
-        statusEl.textContent = `Trop lourd : ${formatBytes(totalBytes)} — limite ${formatBytes(POST_MAX)}`;
+        statusEl.textContent = `Trop lourd au total : ${formatBytes(totalBytes)} — limite ${formatBytes(POST_MAX)}`;
         return;
       }
 
@@ -531,18 +538,37 @@ async function viewJob(id) {
         pctEl.textContent  = pct + '%';
       };
 
+      const skipReasons = {
+        too_large:     'trop volumineux',
+        bad_extension: 'extension non autorisée',
+        blocked_type:  'contenu refusé',
+        write_error:   'erreur d\'écriture',
+        upload_error:  'erreur d\'upload',
+      };
+
       xhr.onload = () => {
         wrapEl.style.display = 'none';
         try {
           const json = JSON.parse(xhr.responseText);
-          statusEl.textContent = json.ok ? `${json.data.length} fichier(s) uploadé(s)` : json.error;
-          if (json.ok) setTimeout(() => viewJob(id), 800);
+          if (!json.ok) {
+            statusEl.textContent = json.error;
+            return;
+          }
+          const { saved = [], skipped = [] } = json.data;
+          const parts = [];
+          if (saved.length) parts.push(`${saved.length} fichier(s) uploadé(s)`);
+          if (skipped.length) {
+            const detail = skipped.map(s => `${s.filename} (${skipReasons[s.reason] || s.reason})`).join(', ');
+            parts.push(`${skipped.length} rejeté(s) : ${detail}`);
+          }
+          statusEl.textContent = parts.join(' — ') || 'Aucun fichier traité';
+          if (saved.length) setTimeout(() => viewJob(id), 800);
         } catch { statusEl.textContent = 'Erreur de réponse serveur'; }
       };
 
       xhr.onerror = () => {
         wrapEl.style.display = 'none';
-        statusEl.textContent = 'Erreur réseau';
+        statusEl.textContent = 'Erreur réseau — le fichier est peut-être trop volumineux pour le serveur';
       };
 
       xhr.open('POST', `${API}/jobs/${id}/files`);
@@ -1809,7 +1835,11 @@ async function showQuotePage() {
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showErr('Email invalide.');
     if (!title) return showErr('Décris ce que tu veux faire imprimer.');
     if (files.length > 20) return showErr('Maximum 20 fichiers par demande.');
-    const POST_MAX = 1100 * 1024 * 1024;
+    // Doit rester sous upload_max_filesize / post_max_size (docker/Dockerfile) et MAX_FILE_SIZE (config)
+    const MAX_FILE = 200 * 1024 * 1024;
+    const POST_MAX = 210 * 1024 * 1024;
+    const tooBig = files.filter(f => f.size > MAX_FILE);
+    if (tooBig.length) return showErr(`Fichier(s) trop volumineux (max ${formatBytes(MAX_FILE)}) : ${tooBig.map(f => f.name).join(', ')}.`);
     const total = files.reduce((s, f) => s + f.size, 0);
     if (total > POST_MAX) return showErr(`Fichiers trop lourds : ${formatBytes(total)} — limite ${formatBytes(POST_MAX)}.`);
 

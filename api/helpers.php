@@ -104,9 +104,10 @@ function next_job_ref(): string {
 
 // ── Upload fichiers 3D ────────────────────────────────────────
 function handle_stl_upload(int $job_id, bool $is_temp = false): array {
-    $saved = [];
-    $files = $_FILES['stl'] ?? null;
-    if (!$files) return $saved;
+    $saved   = [];
+    $skipped = [];
+    $files   = $_FILES['stl'] ?? null;
+    if (!$files) return ['saved' => $saved, 'skipped' => $skipped];
 
     // Normaliser en tableau (un ou plusieurs fichiers)
     if (!is_array($files['name'])) {
@@ -135,11 +136,24 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
     $rel_paths = $_POST['stl_paths'] ?? [];
 
     foreach ($files['name'] as $i => $name) {
-        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
-        if ($files['size'][$i] > MAX_FILE_SIZE) continue;
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) {
+            $reason = match ($files['error'][$i]) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'too_large',
+                default => 'upload_error',
+            };
+            $skipped[] = ['filename' => $name, 'reason' => $reason];
+            continue;
+        }
+        if ($files['size'][$i] > MAX_FILE_SIZE) {
+            $skipped[] = ['filename' => $name, 'reason' => 'too_large'];
+            continue;
+        }
 
         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowed_exts)) continue;
+        if (!in_array($ext, $allowed_exts)) {
+            $skipped[] = ['filename' => $name, 'reason' => 'bad_extension'];
+            continue;
+        }
 
         $tmp = $files['tmp_name'][$i];
 
@@ -148,7 +162,10 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
             $mime  = finfo_file($finfo, $tmp);
             finfo_close($finfo);
-            if (in_array($mime, $blocked_mimes)) continue;
+            if (in_array($mime, $blocked_mimes)) {
+                $skipped[] = ['filename' => $name, 'reason' => 'blocked_type'];
+                continue;
+            }
         }
 
         // 2. Vérification du contenu — rejeter si marqueurs de code présents
@@ -157,7 +174,10 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
         foreach ($code_markers as $marker) {
             if (stripos($head, $marker) !== false) { $safe_content = false; break; }
         }
-        if (!$safe_content) continue;
+        if (!$safe_content) {
+            $skipped[] = ['filename' => $name, 'reason' => 'blocked_type'];
+            continue;
+        }
 
         // Chemin relatif (dossier d'origine), nettoyé segment par segment — évite ../ et caractères dangereux
         $rel_path = null;
@@ -192,9 +212,11 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
                 'relative_path' => $rel_path,
                 'url'           => '/api/files/' . $job_id . '/' . $encoded_url,
             ];
+        } else {
+            $skipped[] = ['filename' => $name, 'reason' => 'write_error'];
         }
     }
-    return $saved;
+    return ['saved' => $saved, 'skipped' => $skipped];
 }
 
 // ── Upload photos ─────────────────────────────────────────────

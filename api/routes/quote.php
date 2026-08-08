@@ -106,7 +106,8 @@ if ($method === 'POST' && $action === null) {
     $pdo->prepare('INSERT INTO job_events (job_id, status, message) VALUES (?,?,?)')
         ->execute([$job_id, 'quote', 'Demande de devis reçue via le portail']);
 
-    $saved = handle_stl_upload($job_id);
+    $upload_result = handle_stl_upload($job_id);
+    $saved = $upload_result['saved'];
 
     try {
         $pdo->prepare('INSERT INTO quote_attempts (ip) VALUES (?)')->execute([$ip]);

@@ -355,8 +355,8 @@ if ($method === 'POST' && $id !== null && $sub === 'files') {
     if (!$job) json_err('Job introuvable', 404);
     if (!$is_admin && (int)$job['client_id'] !== (int)$user['id']) json_err('Accès refusé', 403);
 
-    $saved = handle_stl_upload($id, !empty($_POST['temp']));
-    json_ok($saved, 201);
+    $result = handle_stl_upload($id, !empty($_POST['temp']));
+    json_ok($result, 201);
 }
 
 // ── DELETE /api/jobs/{id}/files  (query ?file_id=N) ──────────
