@@ -21,3 +21,7 @@ define('APP_ENV',  getenv('APP_ENV')  ?: 'production');
 
 define('MAIL_FROM',      getenv('MAIL_FROM')      ?: 'noreply@example.com');
 define('MAIL_FROM_NAME', getenv('MAIL_FROM_NAME') ?: 'Print3D');
+
+// WhatsApp (notifications admin via CallMeBot — https://www.callmebot.com/blog/free-api-whatsapp-messages/)
+define('CALLMEBOT_PHONE',  getenv('CALLMEBOT_PHONE')  ?: '');
+define('CALLMEBOT_APIKEY', getenv('CALLMEBOT_APIKEY') ?: '');

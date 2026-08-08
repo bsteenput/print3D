@@ -299,3 +299,21 @@ function notify_client_status(int $job_id, string $status): void {
 
     mail($row['email'], $subject, $body, $headers);
 }
+
+// ── Notification WhatsApp admin (CallMeBot) ───────────────────
+function notify_admin_whatsapp(string $message): void {
+    if (!CALLMEBOT_PHONE || !CALLMEBOT_APIKEY) return;
+
+    $url = 'https://api.callmebot.com/whatsapp.php?'
+         . http_build_query([
+               'phone'  => CALLMEBOT_PHONE,
+               'text'   => $message,
+               'apikey' => CALLMEBOT_APIKEY,
+           ]);
+
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+    $result = @file_get_contents($url, false, $ctx);
+    if ($result === false) {
+        error_log('[CallMeBot] Échec envoi WhatsApp : ' . (error_get_last()['message'] ?? 'inconnu'));
+    }
+}

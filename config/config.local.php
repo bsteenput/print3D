@@ -19,3 +19,7 @@ define('APP_ENV', 'dev');
 
 define('MAIL_FROM', 'noreply@localhost');
 define('MAIL_FROM_NAME', 'Print3D Local');
+
+// Renseigner pour tester les notifs WhatsApp en local (voir CallMeBot)
+define('CALLMEBOT_PHONE', '');
+define('CALLMEBOT_APIKEY', '');

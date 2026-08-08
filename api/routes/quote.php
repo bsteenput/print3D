@@ -120,19 +120,14 @@ if ($method === 'POST' && $action === null) {
     $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
              . "Content-Type: text/plain; charset=utf-8\r\n";
 
-    // Email à l'admin
-    $admin_email = $pdo->query("SELECT value FROM settings WHERE key_name='contact_email'")->fetchColumn();
-    if ($admin_email) {
-        $admin_body = "Nouvelle demande de devis via le portail :\n\n"
-                    . "  Réf      : {$ref}\n"
-                    . "  De       : {$name} <{$email}>\n"
-                    . "  Titre    : {$title}\n"
-                    . "  Quantité : {$qty}\n"
-                    . "  Fichiers : " . count($saved) . "\n\n"
-                    . ($desc ? "Message :\n{$desc}\n\n" : '')
-                    . "Ouvrir : " . base_url() . "/#jobs/{$job_id}\n";
-        @mail($admin_email, "[Print3D] Nouvelle demande de devis — {$ref}", $admin_body, $headers);
-    }
+    // Notification WhatsApp à l'admin
+    $wa_message = "🖨️ Nouvelle demande de devis {$ref}\n"
+                . "De : {$name} ({$email})\n"
+                . "Titre : {$title}\n"
+                . "Quantité : {$qty}\n"
+                . "Fichiers : " . count($saved) . "\n"
+                . base_url() . "/#jobs/{$job_id}";
+    notify_admin_whatsapp($wa_message);
 
     // Email de confirmation au demandeur (avec lien de suivi)
     $client_body = "Bonjour {$name},\n\n"
