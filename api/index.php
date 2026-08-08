@@ -11,9 +11,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/helpers.php';
 
-// Requête POST tronquée par post_max_size : PHP vide $_POST/$_FILES sans erreur exploitable
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && empty($_FILES)
-    && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+// Upload multipart tronqué par post_max_size : PHP vide $_POST/$_FILES sans erreur exploitable.
+// Ne concerne que multipart/form-data — les bodies JSON (lus via php://input) sont hors $_POST/$_FILES par nature.
+$content_type = $_SERVER['CONTENT_TYPE'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && stripos($content_type, 'multipart/form-data') === 0
+    && empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
     json_err('Fichier(s) trop volumineux — limite serveur ' . ini_get('post_max_size'), 413);
 }
 

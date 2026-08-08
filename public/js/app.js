@@ -412,7 +412,7 @@ async function viewJob(id) {
               ${j.temp_files.map(f => renderFileLi(f, { checkbox: false })).join('')}
             </ul>` : '<div class="empty" style="padding:20px">Aucun fichier de travail</div>'}
             <div class="file-toolbar">
-              <input type="file" id="temp-stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
+              <input type="file" id="temp-stl-input" multiple style="display:none">
               <button class="btn btn-ghost btn-sm" onclick="el('temp-stl-input').click()">+ Ajouter</button>
               <span id="temp-upload-status" style="font-size:12px;color:var(--muted)"></span>
             </div>

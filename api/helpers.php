@@ -114,8 +114,19 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
         foreach ($files as $k => $v) $files[$k] = [$v];
     }
 
-    // Extensions autorisées pour l'impression 3D
+    // Extensions autorisées pour les fichiers finaux (liés aux objets à imprimer)
     $allowed_exts = ['stl', '3mf', 'obj'];
+
+    // Fichiers de travail (brouillons) : toutes extensions acceptées sauf celles pouvant être exécutées
+    // côté serveur ou navigateur — défense en profondeur en plus des vérifs MIME/contenu ci-dessous
+    // (uploads/ interdit d'accès direct et servi en pièce jointe forcée, voir uploads/.htaccess et routes/files.php)
+    $blocked_temp_exts = [
+        'php', 'php3', 'php4', 'php5', 'php7', 'phtml', 'phar', 'pht',
+        'exe', 'com', 'bat', 'cmd', 'msi', 'scr', 'dll', 'hta',
+        'sh', 'bash', 'csh', 'ps1', 'psm1', 'vb', 'vbs', 'vbe', 'jse', 'wsf', 'wsh',
+        'js', 'mjs', 'jar', 'py', 'rb', 'pl', 'cgi',
+        'htaccess', 'htpasswd', 'html', 'htm', 'asp', 'aspx', 'jsp', 'jspx',
+    ];
 
     // Types MIME dangereux à bloquer explicitement
     $blocked_mimes = [
@@ -150,7 +161,12 @@ function handle_stl_upload(int $job_id, bool $is_temp = false): array {
         }
 
         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowed_exts)) {
+        if ($is_temp) {
+            if (in_array($ext, $blocked_temp_exts)) {
+                $skipped[] = ['filename' => $name, 'reason' => 'blocked_type'];
+                continue;
+            }
+        } elseif (!in_array($ext, $allowed_exts)) {
             $skipped[] = ['filename' => $name, 'reason' => 'bad_extension'];
             continue;
         }
