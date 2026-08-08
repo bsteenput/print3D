@@ -295,6 +295,29 @@ async function viewJob(id) {
     const isAdmin = _user.role === 'admin';
     const pct = j.layer_total ? Math.round((j.layer_current/j.layer_total)*100) : null;
 
+    function renderFileLi(f, { checkbox } = {}) {
+      const rp    = f.relative_path || f.filename;
+      const slash = rp.lastIndexOf('/');
+      const fname = slash >= 0 ? rp.slice(slash + 1) : rp;
+      const fdir  = slash >= 0 ? rp.slice(0, slash)  : '';
+      const dot   = fname.lastIndexOf('.');
+      const ext   = dot > 0 ? fname.slice(dot + 1).slice(0, 4) : '?';
+      return `<li id="fi-${f.id}">
+        ${checkbox ? `<input type="checkbox" class="file-pick" value="${f.id}" title="Sélectionner">` : ''}
+        <span class="file-ext">${esc(ext)}</span>
+        <span class="file-name" title="${esc(rp)}">
+          <span class="fn">${esc(fname)}</span>
+          ${fdir ? `<span class="fd">📁 ${esc(fdir)}</span>` : ''}
+        </span>
+        <span class="file-size">${formatBytes(f.size_bytes)}</span>
+        <span class="file-actions">
+          <button class="btn btn-sm btn-ghost btn-icon" title="Visualiser en 3D" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁</button>
+          <button class="btn btn-sm btn-ghost btn-icon" title="Télécharger" onclick="downloadFile('${esc(f.url)}','${esc(f.filename)}')">⬇</button>
+          ${isAdmin ? `<button class="btn btn-sm btn-danger btn-icon" title="Supprimer" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
+        </span>
+      </li>`;
+    }
+
     html('view', `
       <div class="page-title">
         <div>
@@ -362,27 +385,7 @@ async function viewJob(id) {
           <div class="card">
             <h2>Fichiers STL${j.files.length ? ` (${j.files.length})` : ''}</h2>
             ${j.files.length ? `<ul class="file-list" id="file-list">
-              ${j.files.map(f => {
-                const rp    = f.relative_path || f.filename;
-                const slash = rp.lastIndexOf('/');
-                const fname = slash >= 0 ? rp.slice(slash + 1) : rp;
-                const fdir  = slash >= 0 ? rp.slice(0, slash)  : '';
-                const dot   = fname.lastIndexOf('.');
-                const ext   = dot > 0 ? fname.slice(dot + 1).slice(0, 4) : '?';
-                return `<li id="fi-${f.id}">
-                ${isAdmin ? `<input type="checkbox" class="file-pick" value="${f.id}" title="Sélectionner">` : ''}
-                <span class="file-ext">${esc(ext)}</span>
-                <span class="file-name" title="${esc(rp)}">
-                  <span class="fn">${esc(fname)}</span>
-                  ${fdir ? `<span class="fd">📁 ${esc(fdir)}</span>` : ''}
-                </span>
-                <span class="file-size">${formatBytes(f.size_bytes)}</span>
-                <span class="file-actions">
-                  <button class="btn btn-sm btn-ghost btn-icon" title="Visualiser en 3D" onclick="openStl('${esc(f.url)}','${esc(f.filename)}')">👁</button>
-                  <button class="btn btn-sm btn-ghost btn-icon" title="Télécharger" onclick="downloadFile('${esc(f.url)}','${esc(f.filename)}')">⬇</button>
-                  ${isAdmin ? `<button class="btn btn-sm btn-danger btn-icon" title="Supprimer" onclick="deleteFile(${j.id},${f.id})">✕</button>` : ''}
-                </span>
-              </li>`;}).join('')}
+              ${j.files.map(f => renderFileLi(f, { checkbox: isAdmin })).join('')}
             </ul>` : '<div class="empty" style="padding:20px">Aucun fichier</div>'}
             <div class="file-toolbar">
               <input type="file" id="stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
@@ -402,6 +405,18 @@ async function viewJob(id) {
               </div>
             </div>
           </div>
+          ${isAdmin ? `<div class="card">
+            <h2>🧪 Fichiers de travail${j.temp_files.length ? ` (${j.temp_files.length})` : ''}</h2>
+            <p style="font-size:12px;color:var(--muted);margin:-6px 0 10px">Brouillons temporaires (ex: STL sources à combiner avant vérif UVTools) — non visibles par le client, pas liés aux objets à imprimer.</p>
+            ${j.temp_files.length ? `<ul class="file-list" id="temp-file-list">
+              ${j.temp_files.map(f => renderFileLi(f, { checkbox: false })).join('')}
+            </ul>` : '<div class="empty" style="padding:20px">Aucun fichier de travail</div>'}
+            <div class="file-toolbar">
+              <input type="file" id="temp-stl-input" accept=".stl,.3mf,.obj" multiple style="display:none">
+              <button class="btn btn-ghost btn-sm" onclick="el('temp-stl-input').click()">+ Ajouter</button>
+              <span id="temp-upload-status" style="font-size:12px;color:var(--muted)"></span>
+            </div>
+          </div>` : ''}
           <div class="card">
             <h2>Photos du résultat
               ${isAdmin ? `<label class="btn btn-sm btn-ghost" style="cursor:pointer;font-weight:400">
@@ -469,11 +484,12 @@ async function viewJob(id) {
     window._jobFiles = j.files;
 
     // STL upload (fichiers seuls ou dossier complet — webkitRelativePath préserve la structure)
-    function uploadStlFiles(fileList) {
+    // isTemp : upload dans la zone "Fichiers de travail" (brouillons) plutôt que les fichiers finaux
+    function uploadStlFiles(fileList, isTemp = false) {
       if (!fileList.length) return;
       const totalBytes = Array.from(fileList).reduce((s, f) => s + f.size, 0);
       const POST_MAX = 1100 * 1024 * 1024;
-      const statusEl  = el('upload-status');
+      const statusEl  = el(isTemp ? 'temp-upload-status' : 'upload-status');
       const wrapEl    = el('upload-progress-wrap');
       const barEl     = el('upload-progress-bar');
       const textEl    = el('upload-progress-text');
@@ -493,6 +509,7 @@ async function viewJob(id) {
         const stlPath = (fileList[i].webkitRelativePath && idx >= 0) ? rp.slice(idx + 1) : rp;
         fd.append('stl_paths[]', stlPath);
       }
+      if (isTemp) fd.append('temp', '1');
 
       statusEl.textContent = '';
       wrapEl.style.display = 'block';
@@ -534,6 +551,7 @@ async function viewJob(id) {
     }
     el('stl-input')?.addEventListener('change', () => uploadStlFiles(el('stl-input').files));
     el('stl-folder-input')?.addEventListener('change', () => uploadStlFiles(el('stl-folder-input').files));
+    el('temp-stl-input')?.addEventListener('change', () => uploadStlFiles(el('temp-stl-input').files, true));
 
     // Création en masse d'objets à imprimer depuis les fichiers cochés
     el('bulk-create-items-btn')?.addEventListener('click', async () => {

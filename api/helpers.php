@@ -103,7 +103,7 @@ function next_job_ref(): string {
 }
 
 // ── Upload fichiers 3D ────────────────────────────────────────
-function handle_stl_upload(int $job_id): array {
+function handle_stl_upload(int $job_id, bool $is_temp = false): array {
     $saved = [];
     $files = $_FILES['stl'] ?? null;
     if (!$files) return $saved;
@@ -179,15 +179,16 @@ function handle_stl_upload(int $job_id): array {
         if (move_uploaded_file($tmp, $dest)) {
             $pdo  = db();
             $stmt = $pdo->prepare(
-                'INSERT INTO job_files (job_id, filename, relative_path, path, size_bytes) VALUES (?,?,?,?,?)'
+                'INSERT INTO job_files (job_id, filename, is_temp, relative_path, path, size_bytes) VALUES (?,?,?,?,?,?)'
             );
             $rel = $sub_dir !== '' ? "job_{$job_id}/{$sub_dir}/{$filename}" : "job_{$job_id}/{$filename}";
-            $stmt->execute([$job_id, $name, $rel_path, $rel, $files['size'][$i]]);
+            $stmt->execute([$job_id, $name, $is_temp ? 1 : 0, $rel_path, $rel, $files['size'][$i]]);
             $raw_url_path = ltrim(($sub_dir !== '' ? $sub_dir . '/' : '') . $filename, '/');
             $encoded_url  = implode('/', array_map('rawurlencode', explode('/', $raw_url_path)));
             $saved[] = [
                 'id'            => (int)$pdo->lastInsertId(),
                 'filename'      => $name,
+                'is_temp'       => $is_temp,
                 'relative_path' => $rel_path,
                 'url'           => '/api/files/' . $job_id . '/' . $encoded_url,
             ];

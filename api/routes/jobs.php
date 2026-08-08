@@ -138,14 +138,19 @@ if ($method === 'GET' && $id !== null && $sub === null) {
     // hide admin notes from clients
     if (!$is_admin) unset($job['notes_admin']);
 
-    $files = $pdo->prepare('SELECT id, filename, relative_path, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
+    $files = $pdo->prepare('SELECT id, filename, is_temp, relative_path, path, size_bytes, uploaded_at FROM job_files WHERE job_id = ?');
     $files->execute([$id]);
-    $job['files'] = array_map(function ($f) use ($id) {
+    $all_files = array_map(function ($f) use ($id) {
         $served = preg_replace('#^job_' . $id . '/#', '', $f['path']);
         // Encoder chaque segment pour que les espaces/caractères spéciaux soient valides dans l'URL
-        $f['url'] = '/api/files/' . $id . '/' . implode('/', array_map('rawurlencode', explode('/', $served)));
+        $f['url']     = '/api/files/' . $id . '/' . implode('/', array_map('rawurlencode', explode('/', $served)));
+        $f['is_temp'] = (bool)$f['is_temp'];
         return $f;
     }, $files->fetchAll());
+    // Fichiers de travail (brouillons, ex: STL sources à combiner avant vérif UVTools)
+    // séparés des fichiers finaux — pas destinés à être liés à un objet à imprimer.
+    $job['files']      = array_values(array_filter($all_files, fn($f) => !$f['is_temp']));
+    $job['temp_files'] = array_values(array_filter($all_files, fn($f) => $f['is_temp']));
 
     $items_stmt = $pdo->prepare(
         'SELECT i.id, i.file_id, i.name, i.quantity, i.status, i.notes, i.sort_order,
@@ -351,7 +356,7 @@ if ($method === 'POST' && $id !== null && $sub === 'files') {
     if (!$job) json_err('Job introuvable', 404);
     if (!$is_admin && (int)$job['client_id'] !== (int)$user['id']) json_err('Accès refusé', 403);
 
-    $saved = handle_stl_upload($id);
+    $saved = handle_stl_upload($id, !empty($_POST['temp']));
     json_ok($saved, 201);
 }
 
