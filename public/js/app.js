@@ -1628,6 +1628,43 @@ async function showResetPage(resetToken) {
   });
 }
 
+// Stepper de suivi public : étapes fixes, pas de % inventé (pas de télémétrie imprimante)
+function trackingStepper(currentStatus) {
+  const STEPS = [
+    { key:'quote',     label:'Devis' },
+    { key:'queued',    label:'File d\'attente' },
+    { key:'printing',  label:'Impression' },
+    { key:'done',      label:'Prêt' },
+    { key:'picked_up', label:'Récupéré' }
+  ];
+  const idx = STEPS.findIndex(s => s.key === currentStatus);
+  if (idx === -1) return ''; // ex: 'cancelled' — pas de progression à montrer
+
+  const doneColor = '#22c55e', currentColor = 'var(--accent-dk)', futureColor = '#e5e7eb';
+
+  const circles = STEPS.map((s, i) => {
+    const isDone = i < idx, isCurrent = i === idx;
+    const bg = isDone ? doneColor : (isCurrent ? currentColor : '#fff');
+    const border = isDone ? doneColor : (isCurrent ? currentColor : '#9ca3af');
+    const textColor = isDone || isCurrent ? '#000' : 'var(--muted)';
+    return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0">
+      <div style="width:16px;height:16px;border-radius:50%;background:${bg};border:2px solid ${border};box-sizing:border-box${isCurrent ? ';animation:trackPulse 1.6s ease-in-out infinite' : ''}"></div>
+      <div style="font-size:11px;margin-top:6px;text-align:center;color:${textColor};font-weight:${isCurrent ? '700' : '400'}">${esc(s.label)}</div>
+    </div>`;
+  });
+
+  const lines = [];
+  for (let i = 0; i < STEPS.length - 1; i++) {
+    lines.push(`<div style="flex:1;height:2px;background:${i < idx ? doneColor : futureColor};margin-top:7px"></div>`);
+  }
+
+  let row = circles[0];
+  for (let i = 1; i < circles.length; i++) row += lines[i - 1] + circles[i];
+
+  return `<style>@keyframes trackPulse{0%,100%{box-shadow:0 0 0 0 rgba(229,184,0,.35)}50%{box-shadow:0 0 0 5px rgba(229,184,0,0)}}</style>
+    <div style="display:flex;align-items:flex-start;margin-bottom:20px">${row}</div>`;
+}
+
 // ── Page de suivi public (/track/{token}) ────────────────────
 async function showTrackingPage(trackingToken) {
   const STATUS_LABELS = {
@@ -1638,7 +1675,6 @@ async function showTrackingPage(trackingToken) {
     quote:'#f59e0b', queued:'var(--muted)', printing:'var(--primary)', done:'#22c55e',
     picked_up:'var(--primary)', cancelled:'#ef4444'
   };
-  const STATUS_PCT = { quote:5, queued:10, printing:60, done:100, picked_up:100, cancelled:0 };
 
   document.body.innerHTML = `<div style="max-width:560px;margin:40px auto;padding:20px;font-family:Inter,system-ui,sans-serif">
     <div style="font-size:22px;font-weight:700;margin-bottom:24px">🖨 Print3D — Suivi de commande</div>
@@ -1654,7 +1690,6 @@ async function showTrackingPage(trackingToken) {
       return;
     }
     const j = json.data;
-    const pct = STATUS_PCT[j.status] || 0;
     const label = STATUS_LABELS[j.status] || j.status;
     const color = STATUS_COLORS[j.status] || 'var(--muted)';
 
@@ -1663,10 +1698,7 @@ async function showTrackingPage(trackingToken) {
         <div style="font-size:12px;color:var(--muted);margin-bottom:4px">${esc(j.ref)}</div>
         <div style="font-size:20px;font-weight:700;margin-bottom:16px">${esc(j.title)}</div>
         <div style="font-size:16px;font-weight:600;color:${color};margin-bottom:12px">● ${esc(label)}</div>
-        ${pct > 0 ? `
-        <div style="height:8px;background:#e5e7eb;border:1px solid #000;border-radius:99px;overflow:hidden;margin-bottom:16px">
-          <div style="height:100%;width:${pct}%;background:${color};transition:width .5s"></div>
-        </div>` : ''}
+        ${trackingStepper(j.status)}
         ${j.price_final ? `<div style="font-size:14px;color:var(--muted)">Prix : <strong>${esc(String(j.price_final))} €</strong></div>` : ''}
       </div>
       ${j.photos && j.photos.length ? `
