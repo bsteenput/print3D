@@ -158,9 +158,7 @@ CREATE TABLE settings (
 
 INSERT INTO settings (key_name, value) VALUES
     ('hourly_rate',       '0.80'),
-    ('app_name',          'Print3D'),
-    ('contact_email',     'bertrand@example.com'),
-    ('notify_on_status',  '1');           -- envoyer email au client à chaque changement
+    ('app_name',          'Print3D');
 
 -- ------------------------------------------------------------
 --  Tentatives de connexion (rate limiting anti brute-force)

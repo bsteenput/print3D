@@ -1179,8 +1179,6 @@ async function viewSettings() {
         <h2>Général</h2>
         <div class="form-group"><label>Nom de l'application</label><input id="s-name" value="${esc(s.app_name??'Print3D')}"></div>
         <div class="form-group"><label>Taux horaire (€/h)</label><input type="number" step="0.01" id="s-rate" value="${esc(s.hourly_rate??'0.80')}"></div>
-        <div class="form-group"><label>Email de contact</label><input type="email" id="s-email" value="${esc(s.contact_email??'')}"></div>
-        <div class="form-group"><label><input type="checkbox" id="s-notify" ${s.notify_on_status==='1'?'checked':''}> Notifier le client par email à chaque changement de statut</label></div>
         <button class="btn btn-primary" id="s-save">Enregistrer</button>
       </div>
       <div class="card" style="max-width:540px">
@@ -1201,8 +1199,6 @@ async function viewSettings() {
       await post('/settings', {
         app_name: el('s-name').value,
         hourly_rate: el('s-rate').value,
-        contact_email: el('s-email').value,
-        notify_on_status: el('s-notify').checked ? '1' : '0',
       });
       el('s-save').textContent = 'Enregistré ✓';
       setTimeout(() => { el('s-save').textContent = 'Enregistrer'; }, 1500);

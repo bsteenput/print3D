@@ -117,8 +117,6 @@ if ($method === 'POST' && $action === null) {
     } catch (PDOException $e) { /* table absente */ }
 
     $track_url = base_url() . '/track/' . $token;
-    $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
-             . "Content-Type: text/plain; charset=utf-8\r\n";
 
     // Notification WhatsApp à l'admin
     $wa_message = "🖨️ Nouvelle demande de devis {$ref}\n"
@@ -128,14 +126,6 @@ if ($method === 'POST' && $action === null) {
                 . "Fichiers : " . count($saved) . "\n"
                 . base_url() . "/#jobs/{$job_id}";
     notify_admin_whatsapp($wa_message);
-
-    // Email de confirmation au demandeur (avec lien de suivi)
-    $client_body = "Bonjour {$name},\n\n"
-                 . "Ta demande de devis « {$title} » ({$ref}) a bien été reçue.\n"
-                 . "Je reviens vers toi rapidement avec un prix.\n\n"
-                 . "Suis l'avancement ici : {$track_url}\n\n"
-                 . "— " . MAIL_FROM_NAME;
-    @mail($email, "[Print3D] Demande de devis reçue — {$ref}", $client_body, $headers);
 
     json_ok([
         'ref'            => $ref,

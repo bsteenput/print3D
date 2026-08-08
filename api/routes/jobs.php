@@ -344,7 +344,6 @@ if ($method === 'PATCH' && $id !== null && $sub === 'status') {
     $pdo->prepare('INSERT INTO job_events (job_id, status, message) VALUES (?,?,?)')
         ->execute([$id, $status, $msg]);
 
-    notify_client_status($id, $status);
     json_ok(['status' => $status]);
 }
 

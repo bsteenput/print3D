@@ -15,7 +15,7 @@ Application de gestion d'impressions 3D (FDM et résine) pour un usage personnel
 ```
 api/
   index.php          — router, dispatch vers routes/
-  helpers.php        — JWT, auth, calc_price_auto(), handle_stl_upload(), notify_client_status()
+  helpers.php        — JWT, auth, calc_price_auto(), handle_stl_upload(), notify_admin_whatsapp()
   routes/            — un fichier par ressource (jobs, filaments, clients, printers, settings, dashboard, monitor, files, auth)
 config/
   config.php         — constantes (DB, JWT_SECRET, MAIL_*, APP_URL, UPLOAD_DIR, MAX_FILE_SIZE)
@@ -100,7 +100,7 @@ Le `print_type` (`fdm` ou `resin`) est stocké à la fois sur le job et sur le m
 
 ## Déploiement (Coolify)
 
-- Le container lit les variables d'environnement `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`, `JWT_SECRET`, `APP_URL`, `MAIL_FROM`, `MAIL_FROM_NAME`.
+- Le container lit les variables d'environnement `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`, `JWT_SECRET`, `APP_URL`, `CALLMEBOT_PHONE`, `CALLMEBOT_APIKEY`.
 - Les migrations s'appliquent automatiquement à chaque redémarrage — un nouveau fichier `migrations/NNN_xxx.sql` est donc suffisant pour mettre à jour le schéma en prod.
 - Le dossier `uploads/` est monté en volume pour persister les fichiers entre les rebuilds.
 - **Piège connu** : si `database.sql` n'a pas été importé manuellement avant le premier démarrage, le login renvoie une 500 (les tables n'existent pas). Solution : importer `database.sql` depuis le panel Coolify/phpMyAdmin avant le premier déploiement.

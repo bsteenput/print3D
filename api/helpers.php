@@ -255,52 +255,6 @@ function generate_tracking_token(): string {
     return bin2hex(random_bytes(16));
 }
 
-// ── Email notification ────────────────────────────────────────
-function notify_client_status(int $job_id, string $status): void {
-    $setting = db()->query("SELECT value FROM settings WHERE key_name='notify_on_status'")->fetchColumn();
-    if (!$setting) return;
-
-    $stmt = db()->prepare('
-        SELECT j.ref, j.title, j.price_final, j.tracking_token, u.name, u.email
-        FROM jobs j JOIN users u ON u.id = j.client_id
-        WHERE j.id = ?
-    ');
-    $stmt->execute([$job_id]);
-    $row = $stmt->fetch();
-    if (!$row || !$row['email']) return;
-
-    $labels = [
-        'quote'     => 'Devis en cours d\'étude',
-        'queued'    => 'En file d\'attente',
-        'printing'  => 'En cours d\'impression',
-        'done'      => 'Prête à récupérer !',
-        'picked_up' => 'Récupérée — merci !',
-        'cancelled' => 'Annulée',
-    ];
-    $label = $labels[$status] ?? $status;
-
-    $price_line = '';
-    if ($status === 'done' && $row['price_final']) {
-        $price_line = "\nPrix : " . number_format($row['price_final'], 2) . " €";
-    }
-
-    $subject = "[Print3D] {$row['ref']} — {$label}";
-    $track_line = $row['tracking_token']
-        ? "\nSuis l'avancement en direct : " . base_url() . "/track/" . $row['tracking_token']
-        : '';
-
-    $body    = "Bonjour {$row['name']},\n\n"
-             . "Ton impression « {$row['title']} » ({$row['ref']}) a changé de statut :\n\n"
-             . "  ➜  {$label}\n"
-             . $price_line . $track_line . "\n\n"
-             . "— Bertrand";
-
-    $headers = "From: " . MAIL_FROM_NAME . " <" . MAIL_FROM . ">\r\n"
-             . "Content-Type: text/plain; charset=utf-8\r\n";
-
-    mail($row['email'], $subject, $body, $headers);
-}
-
 // ── Notification WhatsApp admin (CallMeBot) ───────────────────
 function notify_admin_whatsapp(string $message): void {
     if (!CALLMEBOT_PHONE || !CALLMEBOT_APIKEY) return;
