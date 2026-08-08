@@ -257,7 +257,10 @@ function generate_tracking_token(): string {
 
 // ── Notification WhatsApp admin (CallMeBot) ───────────────────
 function notify_admin_whatsapp(string $message): void {
-    if (!CALLMEBOT_PHONE || !CALLMEBOT_APIKEY) return;
+    if (!CALLMEBOT_PHONE || !CALLMEBOT_APIKEY) {
+        error_log('[CallMeBot] Notification ignorée : CALLMEBOT_PHONE/CALLMEBOT_APIKEY non configurés');
+        return;
+    }
 
     $url = 'https://api.callmebot.com/whatsapp.php?'
          . http_build_query([
