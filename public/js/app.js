@@ -1867,8 +1867,11 @@ async function showQuotePage() {
         <div class="form-group" style="flex:1;min-width:120px"><label>Quantité</label>
           <input id="q-qty" type="number" min="1" max="999" value="1"></div>
         <div class="form-group" style="flex:2;min-width:200px"><label>Matériau souhaité</label>
-          <select id="q-material"><option value="">Pas de préférence</option></select></div>
+          <select id="q-material"><option value="">Pas de préférence</option><option value="other">Autre (précise ci-dessous)</option></select></div>
       </div>
+      <div class="form-group" id="q-material-other-wrap" style="display:none">
+        <label>Précise le matériau souhaité</label>
+        <input id="q-material-other" maxlength="200" placeholder="Ex : PETG transparent, résine flexible…"></div>
       <div class="form-group"><label>Fichiers 3D (STL, 3MF, OBJ — optionnel)</label>
         <input id="q-files" type="file" accept=".stl,.3mf,.obj" multiple>
         <div id="q-files-info" style="font-size:12px;color:var(--muted);margin-top:4px"></div></div>
@@ -1907,6 +1910,12 @@ async function showQuotePage() {
     }
   } catch (e) { /* select reste sur "Pas de préférence" */ }
 
+  const materialSel = document.getElementById('q-material');
+  const materialOtherWrap = document.getElementById('q-material-other-wrap');
+  materialSel.addEventListener('change', () => {
+    materialOtherWrap.style.display = materialSel.value === 'other' ? 'block' : 'none';
+  });
+
   const filesInput = document.getElementById('q-files');
   filesInput.addEventListener('change', () => {
     const files = [...filesInput.files];
@@ -1927,12 +1936,14 @@ async function showQuotePage() {
     const name  = document.getElementById('q-name').value.trim();
     const email = document.getElementById('q-email').value.trim();
     const title = document.getElementById('q-title').value.trim();
+    const materialOther = document.getElementById('q-material-other').value.trim();
     const files = [...filesInput.files];
     document.getElementById('q-err').style.display = 'none';
 
     if (!name)  return showErr('Ton nom est requis.');
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showErr('Email invalide.');
     if (!title) return showErr('Décris ce que tu veux faire imprimer.');
+    if (materialSel.value === 'other' && !materialOther) return showErr('Précise le matériau souhaité.');
     if (files.length > 20) return showErr('Maximum 20 fichiers par demande.');
     // Doit rester sous upload_max_filesize / post_max_size (docker/Dockerfile) et MAX_FILE_SIZE (config)
     const MAX_FILE = 200 * 1024 * 1024;
@@ -1942,13 +1953,17 @@ async function showQuotePage() {
     const total = files.reduce((s, f) => s + f.size, 0);
     if (total > POST_MAX) return showErr(`Fichiers trop lourds : ${formatBytes(total)} — limite ${formatBytes(POST_MAX)}.`);
 
+    let desc = document.getElementById('q-desc').value.trim();
+    const isOther = materialSel.value === 'other';
+    if (isOther) desc = `Matériau souhaité : ${materialOther}` + (desc ? `\n\n${desc}` : '');
+
     const fd = new FormData();
     fd.append('name', name);
     fd.append('email', email);
     fd.append('title', title);
-    fd.append('description', document.getElementById('q-desc').value.trim());
+    fd.append('description', desc);
     fd.append('quantity', document.getElementById('q-qty').value || '1');
-    fd.append('filament_id', document.getElementById('q-material').value);
+    fd.append('filament_id', isOther ? '' : materialSel.value);
     fd.append('website', document.getElementById('q-website').value);
     files.forEach(f => fd.append('stl[]', f));
 
