@@ -186,7 +186,10 @@ if ($method === 'GET' && $id !== null && $sub === null) {
 
 // ── POST /api/jobs/{id}/messages ──────────────────────────────
 if ($method === 'POST' && $id !== null && $sub === 'messages') {
-    $stmt = $pdo->prepare('SELECT client_id, ref, title FROM jobs WHERE id = ?');
+    $stmt = $pdo->prepare(
+        'SELECT j.client_id, j.ref, j.title, j.tracking_token, u.email AS client_email, u.name AS client_name
+         FROM jobs j LEFT JOIN users u ON u.id = j.client_id WHERE j.id = ?'
+    );
     $stmt->execute([$id]);
     $job = $stmt->fetch();
     if (!$job) json_err('Job introuvable', 404);
@@ -203,6 +206,20 @@ if ($method === 'POST' && $id !== null && $sub === 'messages') {
     if (!$is_admin) {
         notify_admin_whatsapp(
             "💬 Nouveau message de {$job['ref']} ({$job['title']}) :\n" . mb_substr($message, 0, 300)
+        );
+    } elseif ($job['client_email']) {
+        $track_url = base_url() . '/track/' . $job['tracking_token'];
+        $name      = htmlspecialchars($job['client_name'] ?? '', ENT_QUOTES, 'UTF-8');
+        $title_esc = htmlspecialchars($job['title'], ENT_QUOTES, 'UTF-8');
+        $ref_esc   = htmlspecialchars($job['ref'], ENT_QUOTES, 'UTF-8');
+        $msg_esc   = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+        send_email(
+            $job['client_email'],
+            "{$job['ref']} — Nouveau message",
+            "<p>Bonjour {$name},</p>"
+            . "<p>Vous avez reçu un message concernant votre impression <strong>{$title_esc}</strong> ({$ref_esc}) :</p>"
+            . "<p style=\"padding:12px;background:#f5f5f5;border-radius:6px\">{$msg_esc}</p>"
+            . "<p><a href=\"{$track_url}\">Répondre sur la page de suivi</a></p>"
         );
     }
 
@@ -344,6 +361,13 @@ if ($method === 'PATCH' && $id !== null && $sub === 'status') {
     $status = $b['status'] ?? '';
     if (!in_array($status, $STATUSES)) json_err('Statut invalide');
 
+    $client_stmt = $pdo->prepare(
+        'SELECT j.ref, j.title, j.tracking_token, u.email AS client_email, u.name AS client_name
+         FROM jobs j LEFT JOIN users u ON u.id = j.client_id WHERE j.id = ?'
+    );
+    $client_stmt->execute([$id]);
+    $client_info = $client_stmt->fetch();
+
     $timestamps = [];
     if ($status === 'printing')  $timestamps = ['started_at = NOW()'];
     if ($status === 'done')      $timestamps = ['finished_at = NOW()'];
@@ -372,6 +396,32 @@ if ($method === 'PATCH' && $id !== null && $sub === 'status') {
     $msg = $b['message'] ?? null;
     $pdo->prepare('INSERT INTO job_events (job_id, status, message) VALUES (?,?,?)')
         ->execute([$id, $status, $msg]);
+
+    if ($client_info && $client_info['client_email']) {
+        $status_labels = [
+            'quote'      => 'Devis en préparation',
+            'draft'      => 'Brouillon',
+            'queued'     => 'En attente d\'impression',
+            'printing'   => 'En cours d\'impression',
+            'done'       => 'Terminé',
+            'picked_up'  => 'Récupéré',
+            'cancelled'  => 'Annulé',
+        ];
+        $label      = $status_labels[$status] ?? $status;
+        $track_url  = base_url() . '/track/' . $client_info['tracking_token'];
+        $name       = htmlspecialchars($client_info['client_name'] ?? '', ENT_QUOTES, 'UTF-8');
+        $title_esc  = htmlspecialchars($client_info['title'], ENT_QUOTES, 'UTF-8');
+        $ref_esc    = htmlspecialchars($client_info['ref'], ENT_QUOTES, 'UTF-8');
+        $extra_line = $msg ? '<p>' . htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') . '</p>' : '';
+        send_email(
+            $client_info['client_email'],
+            "{$client_info['ref']} — {$label}",
+            "<p>Bonjour {$name},</p>"
+            . "<p>Votre impression <strong>{$title_esc}</strong> ({$ref_esc}) est maintenant : <strong>{$label}</strong>.</p>"
+            . $extra_line
+            . "<p><a href=\"{$track_url}\">Suivre l'impression</a></p>"
+        );
+    }
 
     json_ok(['status' => $status]);
 }

@@ -313,3 +313,35 @@ function notify_admin_whatsapp(string $message): void {
         error_log('[CallMeBot] Échec envoi WhatsApp : ' . (error_get_last()['message'] ?? 'inconnu'));
     }
 }
+
+// ── Envoi d'email au client (Resend) ──────────────────────────
+function send_email(string $to, string $subject, string $html): void {
+    if (!RESEND_API_KEY) {
+        error_log('[Resend] Envoi ignoré : RESEND_API_KEY non configurée');
+        return;
+    }
+
+    $payload = json_encode([
+        'from'    => MAIL_FROM_NAME . ' <' . MAIL_FROM . '>',
+        'to'      => [$to],
+        'subject' => $subject,
+        'html'    => $html,
+    ]);
+
+    $ctx = stream_context_create(['http' => [
+        'method'        => 'POST',
+        'header'        => "Content-Type: application/json\r\nAuthorization: Bearer " . RESEND_API_KEY . "\r\n",
+        'content'       => $payload,
+        'timeout'       => 5,
+        'ignore_errors' => true,
+    ]]);
+    $result = @file_get_contents('https://api.resend.com/emails', false, $ctx);
+    if ($result === false) {
+        error_log('[Resend] Échec envoi email : ' . (error_get_last()['message'] ?? 'inconnu'));
+        return;
+    }
+    $data = json_decode($result, true);
+    if (!isset($data['id'])) {
+        error_log('[Resend] Réponse inattendue : ' . $result);
+    }
+}

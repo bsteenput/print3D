@@ -22,3 +22,8 @@ define('APP_ENV',  getenv('APP_ENV')  ?: 'production');
 // WhatsApp (notifications admin via CallMeBot — https://www.callmebot.com/blog/free-api-whatsapp-messages/)
 define('CALLMEBOT_PHONE',  getenv('CALLMEBOT_PHONE')  ?: '');
 define('CALLMEBOT_APIKEY', getenv('CALLMEBOT_APIKEY') ?: '');
+
+// Email (notifications client via Resend — https://resend.com/docs/api-reference/emails/send-email)
+define('RESEND_API_KEY', getenv('RESEND_API_KEY') ?: '');
+define('MAIL_FROM',      getenv('MAIL_FROM')      ?: 'onboarding@resend.dev');
+define('MAIL_FROM_NAME', getenv('MAIL_FROM_NAME') ?: 'Print3D');
